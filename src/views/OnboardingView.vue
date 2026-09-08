@@ -15,6 +15,7 @@ import { saveOnboardingBasics } from '@/services/onboarding'
 import { centsToCurrency, moneyToCents } from '@/utils/money'
 import OnboardingCommitmentsStep from '@/components/onboarding/OnboardingCommitmentsStep.vue'
 import OnboardingRoutineStep from '@/components/onboarding/OnboardingRoutineStep.vue'
+import OnboardingVariablesStep from '@/components/onboarding/OnboardingVariablesStep.vue'
 
 const authStore = useAuthStore()
 
@@ -60,6 +61,10 @@ async function completeStepTwo() {
 }
 
 async function completeStepThree() {
+  await authStore.loadUserData()
+}
+
+async function completeStepFour() {
   await authStore.loadUserData()
 }
 
@@ -408,18 +413,19 @@ async function continueOnboarding() {
         <OnboardingRoutineStep @completed="completeStepThree" />
       </template>
       <template v-else-if="currentStep === 4">
+        <OnboardingVariablesStep @completed="completeStepFour" />
+      </template>
+      <template v-else-if="currentStep === 5">
         <div class="saved-state">
           <div class="saved-icon">
             <Check :size="30" />
           </div>
 
-          <span class="eyebrow"> PASO 3 COMPLETADO </span>
+          <span class="eyebrow"> PASO 4 COMPLETADO </span>
 
-          <h1>Ya entendemos cómo gastas durante la semana</h1>
+          <h1>Ya tenemos toda tu información inicial</h1>
 
-          <p>
-            Ahora configuraremos los gastos variables y ocasionales que no ocurren en fechas fijas.
-          </p>
+          <p>Ahora Nivela puede construir tu primera planificación financiera completa.</p>
         </div>
       </template>
     </div>

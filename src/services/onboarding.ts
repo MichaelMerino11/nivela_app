@@ -117,3 +117,36 @@ export async function saveOnboardingRoutine(rules: RoutineRuleInput[]) {
     throw error
   }
 }
+
+export type VariablePriority = 'necessary' | 'flexible' | 'optional'
+
+export interface VariableSpendingInput {
+  title: string
+  categoryId: string | null
+
+  expectedAmountCents: number
+  maxAmountCents: number
+
+  priority: VariablePriority
+}
+
+export async function saveOnboardingVariables(items: VariableSpendingInput[]) {
+  const payload = items.map((item) => ({
+    title: item.title,
+    category_id: item.categoryId,
+
+    expected_amount_cents: item.expectedAmountCents,
+
+    max_amount_cents: item.maxAmountCents,
+
+    priority: item.priority,
+  }))
+
+  const { error } = await supabase.rpc('save_onboarding_variables', {
+    p_items: payload,
+  })
+
+  if (error) {
+    throw error
+  }
+}

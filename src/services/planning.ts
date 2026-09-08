@@ -1,9 +1,14 @@
-import { eachDayOfInterval, endOfMonth, format, getDate, getISODay, parseISO } from 'date-fns'
-
+import {
+  eachDayOfInterval,
+  endOfMonth,
+  format,
+  getDate,
+  getISODay,
+  parseISO,
+  startOfDay,
+} from 'date-fns'
 import { es } from 'date-fns/locale'
-
 import { supabase } from '@/services/supabase'
-
 export type RiskLevel = 'low' | 'medium' | 'high'
 
 export interface DailyPlanPreview {
@@ -12,7 +17,10 @@ export interface DailyPlanPreview {
   activity: string
 
   routineNormalCents: number
+  routineMaxCents: number
+
   recommendedCents: number
+  maximumRecommendedCents: number
 }
 
 export interface PlanningSummary {
@@ -192,6 +200,8 @@ function calculateDailyPlan(
       activity: routine?.title || 'Día normal',
 
       normal: routine?.normal_amount_cents || 0,
+
+      maximum: routine?.max_amount_cents || routine?.normal_amount_cents || 0,
     }
   })
 
@@ -210,6 +220,9 @@ function calculateDailyPlan(
    */
   const scale = totalNormal > 0 && available < totalNormal ? available / totalNormal : 1
 
+  const normalBudgetTotal = rawDays.reduce((total, day) => total + day.normal, 0)
+
+  const remainingAfterNormal = Math.max(available - normalBudgetTotal, 0)
   /*
    * Si todos los días tienen $0 de rutina,
    * repartimos de forma uniforme.
@@ -219,6 +232,15 @@ function calculateDailyPlan(
 
   return rawDays.map((day) => {
     const recommended = totalNormal === 0 ? equalBudget : Math.round(day.normal * scale)
+
+    const routineMargin = Math.max(day.maximum - day.normal, 0)
+
+    const extraShare = rawDays.length > 0 ? Math.floor(remainingAfterNormal / rawDays.length) : 0
+
+    const maximumRecommended = Math.max(
+      recommended,
+      Math.min(day.maximum, recommended + routineMargin + extraShare),
+    )
 
     return {
       date: format(day.date, 'yyyy-MM-dd'),
@@ -231,7 +253,11 @@ function calculateDailyPlan(
 
       routineNormalCents: day.normal,
 
+      routineMaxCents: day.maximum,
+
       recommendedCents: recommended,
+
+      maximumRecommendedCents: maximumRecommended,
     }
   })
 }
@@ -331,7 +357,17 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const endDate = parseISO(cycle.end_date)
 
-  const effectiveStartDate = snapshotDate < cycleStartDate ? cycleStartDate : snapshotDate
+  const today = startOfDay(new Date())
+
+  let effectiveStartDate = cycleStartDate
+
+  if (snapshotDate > effectiveStartDate) {
+    effectiveStartDate = snapshotDate
+  }
+
+  if (today > effectiveStartDate) {
+    effectiveStartDate = today
+  }
 
   const remainingDates =
     effectiveStartDate <= endDate

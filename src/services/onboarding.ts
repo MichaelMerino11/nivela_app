@@ -150,3 +150,11 @@ export async function saveOnboardingVariables(items: VariableSpendingInput[]) {
     throw error
   }
 }
+
+export async function completeOnboarding() {
+  const { error } = await supabase.rpc('complete_onboarding')
+
+  if (error) {
+    throw error
+  }
+}

@@ -11,16 +11,18 @@ import {
   ShieldCheck,
   Wallet,
 } from 'lucide-vue-next'
-
 import { getPlanningSummary, type PlanningSummary } from '@/services/planning'
-
 import { centsToCurrency } from '@/utils/money'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { completeOnboarding } from '@/services/onboarding'
 
 const summary = ref<PlanningSummary | null>(null)
-
 const loading = ref(true)
-
 const errorMessage = ref('')
+const router = useRouter()
+const authStore = useAuthStore()
+const completing = ref(false)
 
 const riskLabel = computed(() => {
   if (!summary.value) {
@@ -71,6 +73,26 @@ async function loadSummary() {
     errorMessage.value = error?.message || 'No pudimos calcular tu planificación.'
   } finally {
     loading.value = false
+  }
+}
+
+async function finishOnboarding() {
+  errorMessage.value = ''
+
+  try {
+    completing.value = true
+
+    await completeOnboarding()
+
+    await authStore.loadUserData()
+
+    await router.replace('/')
+  } catch (error: any) {
+    console.error('ERROR FINALIZANDO ONBOARDING:', error)
+
+    errorMessage.value = error?.message || 'No pudimos finalizar la configuración.'
+  } finally {
+    completing.value = false
   }
 }
 
@@ -303,17 +325,25 @@ onMounted(loadSummary)
         </div>
       </section>
 
-      <section class="final-note">
+      <section class="final-note final-note--finish">
         <CheckCircle2 :size="21" />
 
-        <div>
+        <div class="final-note__content">
           <strong> Tu primera planificación está lista </strong>
 
           <p>
-            En el siguiente paso conectaremos estos cálculos al Dashboard y eliminaremos
-            definitivamente los datos de demostración.
+            Nivela ya tiene suficiente información para comenzar a administrar tu ciclo financiero.
           </p>
         </div>
+
+        <button
+          type="button"
+          class="finish-button"
+          :disabled="completing"
+          @click="finishOnboarding"
+        >
+          {{ completing ? 'Preparando Nivela...' : 'Entrar a mi Dashboard' }}
+        </button>
       </section>
     </template>
   </div>
@@ -884,6 +914,50 @@ onMounted(loadSummary)
 
   font-size: 9px;
   line-height: 1.6;
+}
+
+.final-note--finish {
+  align-items: center;
+}
+
+.final-note__content {
+  flex: 1;
+}
+
+.finish-button {
+  min-height: 42px;
+
+  padding: 0 16px;
+
+  flex-shrink: 0;
+
+  border: 0;
+  border-radius: 12px;
+
+  background: #16a34a;
+  color: white;
+
+  cursor: pointer;
+
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.finish-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (max-width: 600px) {
+  .final-note--finish {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .finish-button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 950px) {

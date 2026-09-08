@@ -12,6 +12,9 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-vue-next'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const upcomingExpenses = [
   {
@@ -48,7 +51,7 @@ const upcomingExpenses = [
       <div>
         <span class="eyebrow"> MARTES, 8 DE SEPTIEMBRE </span>
 
-        <h1>Buenos días, Michael</h1>
+        <h1>Buenos días, {{ authStore.displayName }}</h1>
 
         <p>Tu planificación está bajo control.</p>
       </div>

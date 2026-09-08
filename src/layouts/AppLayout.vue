@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useDisplay } from 'vuetify'
+import { useAuthStore } from '@/stores/auth'
 
 import {
   LayoutDashboard,
@@ -15,7 +16,7 @@ import {
 } from 'lucide-vue-next'
 
 const { mdAndUp } = useDisplay()
-
+const authStore = useAuthStore()
 const drawer = ref(true)
 
 const menuItems = [
@@ -95,7 +96,7 @@ const mobileItems = menuItems.filter((item) =>
         <div class="profile-avatar">MM</div>
 
         <div class="profile-info">
-          <strong>Michael</strong>
+          <strong>{{ authStore.displayName }}</strong>
           <span>Cuenta personal</span>
         </div>
       </div>

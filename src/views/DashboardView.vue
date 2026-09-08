@@ -48,7 +48,7 @@ const upcomingExpenses = [
       <div>
         <span class="eyebrow"> MARTES, 8 DE SEPTIEMBRE </span>
 
-        <h1>Buenos días, Alexander</h1>
+        <h1>Buenos días, Michael</h1>
 
         <p>Tu planificación está bajo control.</p>
       </div>

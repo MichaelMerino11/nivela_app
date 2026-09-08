@@ -92,10 +92,10 @@ const mobileItems = menuItems.filter((item) =>
       </RouterLink>
 
       <div class="profile-card">
-        <div class="profile-avatar">AM</div>
+        <div class="profile-avatar">MM</div>
 
         <div class="profile-info">
-          <strong>Alexander</strong>
+          <strong>Michael</strong>
           <span>Cuenta personal</span>
         </div>
       </div>

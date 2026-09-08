@@ -15,12 +15,15 @@ async function bootstrap() {
   const pinia = createPinia()
 
   app.use(pinia)
-  app.use(router)
   app.use(vuetify)
 
   const authStore = useAuthStore(pinia)
 
   await authStore.initialize()
+
+  app.use(router)
+
+  await router.isReady()
 
   app.mount('#app')
 }

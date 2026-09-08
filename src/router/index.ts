@@ -4,6 +4,7 @@ import AppLayout from '@/layouts/AppLayout.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import LoginView from '@/views/LoginView.vue'
 import ResetPasswordView from '@/views/ResetPasswordView.vue'
+import OnboardingView from '@/views/OnboardingView.vue'
 
 import { useAuthStore } from '@/stores/auth'
 
@@ -23,6 +24,14 @@ const router = createRouter({
       path: '/reset-password',
       name: 'reset-password',
       component: ResetPasswordView,
+    },
+    {
+      path: '/onboarding',
+      name: 'onboarding',
+      component: OnboardingView,
+      meta: {
+        requiresAuth: true,
+      },
     },
     {
       path: '/',
@@ -52,6 +61,21 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated) {
+    return authStore.onboardingCompleted ? { name: 'dashboard' } : { name: 'onboarding' }
+  }
+
+  if (
+    authStore.isAuthenticated &&
+    !authStore.onboardingCompleted &&
+    to.name !== 'onboarding' &&
+    to.name !== 'reset-password'
+  ) {
+    return {
+      name: 'onboarding',
+    }
+  }
+
+  if (authStore.isAuthenticated && authStore.onboardingCompleted && to.name === 'onboarding') {
     return {
       name: 'dashboard',
     }

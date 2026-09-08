@@ -22,6 +22,7 @@ interface FinancialSettings {
   minimum_buffer_cents: number
   cycle_strategy: string
   onboarding_completed: boolean
+  onboarding_step: number
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -57,17 +58,18 @@ export const useAuthStore = defineStore('auth', () => {
         .from('financial_settings')
         .select(
           `
-          id,
-          user_id,
-          currency_code,
-          timezone,
-          salary_cents,
-          usual_pay_day,
-          savings_target_cents,
-          minimum_buffer_cents,
-          cycle_strategy,
-          onboarding_completed
-        `,
+      id,
+      user_id,
+      currency_code,
+      timezone,
+      salary_cents,
+      usual_pay_day,
+      savings_target_cents,
+      minimum_buffer_cents,
+      cycle_strategy,
+      onboarding_completed,
+      onboarding_step
+    `,
         )
         .eq('user_id', user.value.id)
         .single(),

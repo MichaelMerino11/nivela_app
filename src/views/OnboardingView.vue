@@ -16,6 +16,7 @@ import { centsToCurrency, moneyToCents } from '@/utils/money'
 import OnboardingCommitmentsStep from '@/components/onboarding/OnboardingCommitmentsStep.vue'
 import OnboardingRoutineStep from '@/components/onboarding/OnboardingRoutineStep.vue'
 import OnboardingVariablesStep from '@/components/onboarding/OnboardingVariablesStep.vue'
+import OnboardingSummaryStep from '@/components/onboarding/OnboardingSummaryStep.vue'
 
 const authStore = useAuthStore()
 
@@ -416,17 +417,7 @@ async function continueOnboarding() {
         <OnboardingVariablesStep @completed="completeStepFour" />
       </template>
       <template v-else-if="currentStep === 5">
-        <div class="saved-state">
-          <div class="saved-icon">
-            <Check :size="30" />
-          </div>
-
-          <span class="eyebrow"> PASO 4 COMPLETADO </span>
-
-          <h1>Ya tenemos toda tu información inicial</h1>
-
-          <p>Ahora Nivela puede construir tu primera planificación financiera completa.</p>
-        </div>
+        <OnboardingSummaryStep />
       </template>
     </div>
   </div>

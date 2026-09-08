@@ -93,3 +93,27 @@ export async function saveOnboardingCommitments(items: CommitmentInput[]) {
     throw error
   }
 }
+
+export interface RoutineRuleInput {
+  title: string
+  weekday: number
+  normalAmountCents: number
+  maxAmountCents: number
+}
+
+export async function saveOnboardingRoutine(rules: RoutineRuleInput[]) {
+  const payload = rules.map((rule) => ({
+    title: rule.title,
+    weekday: rule.weekday,
+    normal_amount_cents: rule.normalAmountCents,
+    max_amount_cents: rule.maxAmountCents,
+  }))
+
+  const { error } = await supabase.rpc('save_onboarding_routine', {
+    p_rules: payload,
+  })
+
+  if (error) {
+    throw error
+  }
+}

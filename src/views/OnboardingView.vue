@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/auth'
 import { saveOnboardingBasics } from '@/services/onboarding'
 import { centsToCurrency, moneyToCents } from '@/utils/money'
 import OnboardingCommitmentsStep from '@/components/onboarding/OnboardingCommitmentsStep.vue'
+import OnboardingRoutineStep from '@/components/onboarding/OnboardingRoutineStep.vue'
 
 const authStore = useAuthStore()
 
@@ -55,6 +56,10 @@ const previewSavings = computed(() => {
 })
 
 async function completeStepTwo() {
+  await authStore.loadUserData()
+}
+
+async function completeStepThree() {
   await authStore.loadUserData()
 }
 
@@ -400,18 +405,20 @@ async function continueOnboarding() {
         <OnboardingCommitmentsStep @completed="completeStepTwo" />
       </template>
       <template v-else-if="currentStep === 3">
+        <OnboardingRoutineStep @completed="completeStepThree" />
+      </template>
+      <template v-else-if="currentStep === 4">
         <div class="saved-state">
           <div class="saved-icon">
             <Check :size="30" />
           </div>
 
-          <span class="eyebrow"> PASO 2 COMPLETADO </span>
+          <span class="eyebrow"> PASO 3 COMPLETADO </span>
 
-          <h1>Ahora vamos a conocer tu rutina</h1>
+          <h1>Ya entendemos cómo gastas durante la semana</h1>
 
           <p>
-            En el siguiente paso definiremos cuánto sueles gastar en trabajo, pareja, familia y
-            otros días de tu semana.
+            Ahora configuraremos los gastos variables y ocasionales que no ocurren en fechas fijas.
           </p>
         </div>
       </template>

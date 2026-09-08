@@ -11,10 +11,9 @@ import {
 } from 'lucide-vue-next'
 
 import { useAuthStore } from '@/stores/auth'
-
 import { saveOnboardingBasics } from '@/services/onboarding'
-
 import { centsToCurrency, moneyToCents } from '@/utils/money'
+import OnboardingCommitmentsStep from '@/components/onboarding/OnboardingCommitmentsStep.vue'
 
 const authStore = useAuthStore()
 
@@ -54,6 +53,10 @@ const previewSavings = computed(() => {
     return '$0.00'
   }
 })
+
+async function completeStepTwo() {
+  await authStore.loadUserData()
+}
 
 const preliminaryAvailable = computed(() => {
   try {
@@ -176,7 +179,7 @@ async function continueOnboarding() {
       </div>
 
       <!-- PASO 1 -->
-      <template v-if="!saved">
+      <template v-if="currentStep === 1 && !saved">
         <main class="onboarding-content">
           <section class="form-section">
             <span class="eyebrow"> PASO 1 · TU PUNTO DE PARTIDA </span>
@@ -359,7 +362,7 @@ async function continueOnboarding() {
       </template>
 
       <!-- PASO 1 TERMINADO -->
-      <template v-else>
+      <template v-else-if="saved">
         <div class="saved-state">
           <div class="saved-icon">
             <Check :size="30" />
@@ -385,6 +388,31 @@ async function continueOnboarding() {
 
             <div class="next-step-number">2</div>
           </div>
+
+          <button type="button" class="next-button" @click="saved = false">
+            Continuar con mis gastos fijos
+
+            <ChevronRight :size="18" />
+          </button>
+        </div>
+      </template>
+      <template v-else-if="currentStep === 2">
+        <OnboardingCommitmentsStep @completed="completeStepTwo" />
+      </template>
+      <template v-else-if="currentStep === 3">
+        <div class="saved-state">
+          <div class="saved-icon">
+            <Check :size="30" />
+          </div>
+
+          <span class="eyebrow"> PASO 2 COMPLETADO </span>
+
+          <h1>Ahora vamos a conocer tu rutina</h1>
+
+          <p>
+            En el siguiente paso definiremos cuánto sueles gastar en trabajo, pareja, familia y
+            otros días de tu semana.
+          </p>
         </div>
       </template>
     </div>
@@ -1012,6 +1040,33 @@ h1 {
 .message-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+.next-button {
+  display: flex;
+  min-height: 48px;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 7px;
+
+  margin: 22px auto 0;
+  padding: 0 18px;
+
+  border: 0;
+  border-radius: 13px;
+
+  background: #3b82f6;
+  color: white;
+
+  cursor: pointer;
+
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.18);
 }
 
 @media (max-width: 900px) {

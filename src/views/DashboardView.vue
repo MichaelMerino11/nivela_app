@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import {
   AlertTriangle,
@@ -16,16 +16,15 @@ import {
 } from 'lucide-vue-next'
 
 import { format, parseISO } from 'date-fns'
-
 import { es } from 'date-fns/locale'
-
 import { getPlanningSummary, type PlanningSummary } from '@/services/planning'
-
 import { useAuthStore } from '@/stores/auth'
-
 import { centsToCurrency } from '@/utils/money'
+import { useFinanceStore } from '@/stores/finance'
 
 const authStore = useAuthStore()
+
+const financeStore = useFinanceStore()
 
 const summary = ref<PlanningSummary | null>(null)
 
@@ -199,6 +198,14 @@ async function loadDashboard() {
 }
 
 onMounted(loadDashboard)
+
+watch(
+  () => financeStore.revision,
+
+  async () => {
+    await loadDashboard()
+  },
+)
 </script>
 
 <template>

@@ -5,6 +5,7 @@ import DashboardView from '@/views/DashboardView.vue'
 import LoginView from '@/views/LoginView.vue'
 import ResetPasswordView from '@/views/ResetPasswordView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
+import MovementsView from '@/views/MovementsView.vue'
 
 import { useAuthStore } from '@/stores/auth'
 
@@ -45,6 +46,11 @@ const router = createRouter({
           path: '',
           name: 'dashboard',
           component: DashboardView,
+        },
+        {
+          path: 'movimientos',
+          name: 'movements',
+          component: MovementsView,
         },
       ],
     },

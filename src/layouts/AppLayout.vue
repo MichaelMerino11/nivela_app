@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
+import RegisterExpenseDialog from '@/components/expenses/RegisterExpenseDialog.vue'
+import { useFinanceStore } from '@/stores/finance'
 
 import {
   LayoutDashboard,
@@ -55,6 +57,18 @@ const menuItems = [
 const mobileItems = menuItems.filter((item) =>
   ['Inicio', 'Planificación', 'Movimientos', 'Ahorro'].includes(item.title),
 )
+
+const financeStore = useFinanceStore()
+
+const expenseDialogOpen = ref(false)
+
+const expenseSaved = ref(false)
+
+function handleExpenseSaved() {
+  financeStore.notifyFinancialChange()
+
+  expenseSaved.value = true
+}
 </script>
 
 <template>
@@ -118,11 +132,7 @@ const mobileItems = menuItems.filter((item) =>
             <Bell :size="20" />
           </button>
 
-          <v-btn color="primary" class="new-expense-button">
-            <Plus :size="18" class="mr-2" />
-
-            Registrar gasto
-          </v-btn>
+          <v-btn color="primary" @click="expenseDialogOpen = true"> Registrar gasto </v-btn>
         </div>
       </header>
 
@@ -149,6 +159,11 @@ const mobileItems = menuItems.filter((item) =>
       </RouterLink>
     </nav>
   </div>
+  <RegisterExpenseDialog v-model="expenseDialogOpen" @saved="handleExpenseSaved" />
+
+  <v-snackbar v-model="expenseSaved" color="success" :timeout="2800" location="bottom right">
+    Gasto registrado. Tu planificación fue actualizada.
+  </v-snackbar>
 </template>
 
 <style scoped lang="scss">

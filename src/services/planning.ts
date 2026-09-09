@@ -77,6 +77,8 @@ interface RoutineRule {
 }
 
 interface VariableRule {
+  id: string
+
   expected_amount_cents: number
   max_amount_cents: number
 
@@ -89,6 +91,10 @@ interface TransactionRecord {
   amount_cents: number
   occurred_at: string
   created_at: string
+
+  variable_rule_id: string | null
+  recurring_item_id: string | null
+  planned_expense_id: string | null
 }
 
 function countOccurrences(item: RecurringItem, startDate: Date, endDate: Date): number {
@@ -343,10 +349,11 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
         .from('variable_spending_rules')
         .select(
           `
-        expected_amount_cents,
-        max_amount_cents,
-        priority
-      `,
+    id,
+    expected_amount_cents,
+    max_amount_cents,
+    priority
+  `,
         )
         .eq('active', true),
 
@@ -357,7 +364,10 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     kind,
     amount_cents,
     occurred_at,
-    created_at
+    created_at,
+    variable_rule_id,
+    recurring_item_id,
+    planned_expense_id
   `,
         )
         .eq('cycle_id', cycle.id)
@@ -422,44 +432,17 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     totalCycleDays > 0 ? Math.min(Math.max(daysRemaining / totalCycleDays, 0), 1) : 0
 
   const recurringItems = recurringResponse.data as RecurringItem[]
+
   const routines = routinesResponse.data as RoutineRule[]
+
   const variables = variablesResponse.data as VariableRule[]
-
-  const upcomingCommitmentsCents = recurringItems.reduce((total, item) => {
-    const occurrences = countOccurrences(item, effectiveStartDate, endDate)
-
-    return total + item.amount_cents * occurrences
-  }, 0)
-
-  const essentialCommitmentsCents = recurringItems
-    .filter((item) => item.is_essential)
-    .reduce((total, item) => {
-      const occurrences = countOccurrences(item, effectiveStartDate, endDate)
-
-      return total + item.amount_cents * occurrences
-    }, 0)
-
-  const fullVariableReserveCents = variables.reduce(
-    (total, item) => total + item.expected_amount_cents,
-    0,
-  )
-
-  const fullNecessaryVariableCents = variables
-    .filter((item) => item.priority === 'necessary')
-    .reduce((total, item) => total + item.expected_amount_cents, 0)
-
-  const fullAdjustableVariableCents = variables
-    .filter((item) => item.priority !== 'necessary')
-    .reduce((total, item) => total + item.expected_amount_cents, 0)
-
-  const variableReserveCents = Math.round(fullVariableReserveCents * remainingCycleRatio)
-
-  const necessaryVariableCents = Math.round(fullNecessaryVariableCents * remainingCycleRatio)
-
-  const adjustableVariableCents = Math.round(fullAdjustableVariableCents * remainingCycleRatio)
 
   const transactions = transactionsResponse.data as TransactionRecord[]
 
+  /*
+   * Variación real del saldo desde
+   * el último snapshot.
+   */
   const transactionDeltaCents = transactions.reduce((total, transaction) => {
     if (transaction.kind === 'income') {
       return total + transaction.amount_cents
@@ -468,6 +451,106 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     return total - transaction.amount_cents
   }, 0)
 
+  /*
+   * Transacciones que pertenecen al
+   * período que estamos planificando.
+   */
+  const effectiveStartKey = format(effectiveStartDate, 'yyyy-MM-dd')
+
+  const endDateKey = format(endDate, 'yyyy-MM-dd')
+
+  const relevantExpenses = transactions.filter((transaction) => {
+    if (transaction.kind !== 'expense') {
+      return false
+    }
+
+    const transactionDate = format(parseISO(transaction.occurred_at), 'yyyy-MM-dd')
+
+    return transactionDate >= effectiveStartKey && transactionDate <= endDateKey
+  })
+
+  /*
+   * Cuánto de cada reserva variable
+   * o compromiso ya fue consumido.
+   */
+  const variableSpentById = new Map<string, number>()
+
+  const recurringSpentById = new Map<string, number>()
+
+  for (const transaction of relevantExpenses) {
+    if (transaction.variable_rule_id) {
+      const current = variableSpentById.get(transaction.variable_rule_id) ?? 0
+
+      variableSpentById.set(transaction.variable_rule_id, current + transaction.amount_cents)
+    }
+
+    if (transaction.recurring_item_id) {
+      const current = recurringSpentById.get(transaction.recurring_item_id) ?? 0
+
+      recurringSpentById.set(transaction.recurring_item_id, current + transaction.amount_cents)
+    }
+  }
+
+  /*
+   * Compromisos pendientes.
+   */
+  const upcomingCommitmentsCents = recurringItems.reduce((total, item) => {
+    const occurrences = countOccurrences(item, effectiveStartDate, endDate)
+
+    const expected = item.amount_cents * occurrences
+
+    const alreadyPaid = recurringSpentById.get(item.id) ?? 0
+
+    const pending = Math.max(expected - alreadyPaid, 0)
+
+    return total + pending
+  }, 0)
+
+  /*
+   * Solo compromisos obligatorios.
+   */
+  const essentialCommitmentsCents = recurringItems
+    .filter((item) => item.is_essential)
+    .reduce((total, item) => {
+      const occurrences = countOccurrences(item, effectiveStartDate, endDate)
+
+      const expected = item.amount_cents * occurrences
+
+      const alreadyPaid = recurringSpentById.get(item.id) ?? 0
+
+      const pending = Math.max(expected - alreadyPaid, 0)
+
+      return total + pending
+    }, 0)
+
+  /*
+   * Reserva variable restante.
+   *
+   * Ejemplo:
+   * reserva esperada restante = $10
+   * ya gastado = $4
+   * pendiente = $6
+   */
+  function remainingVariableAmount(item: VariableRule): number {
+    const expectedRemaining = Math.round(item.expected_amount_cents * remainingCycleRatio)
+
+    const alreadySpent = variableSpentById.get(item.id) ?? 0
+
+    return Math.max(expectedRemaining - alreadySpent, 0)
+  }
+
+  const variableReserveCents = variables.reduce(
+    (total, item) => total + remainingVariableAmount(item),
+    0,
+  )
+
+  const necessaryVariableCents = variables
+    .filter((item) => item.priority === 'necessary')
+    .reduce((total, item) => total + remainingVariableAmount(item), 0)
+
+  const adjustableVariableCents = variables
+    .filter((item) => item.priority !== 'necessary')
+    .reduce((total, item) => total + remainingVariableAmount(item), 0)
   const todayKey = format(new Date(), 'yyyy-MM-dd')
 
   const spentTodayCents = transactions

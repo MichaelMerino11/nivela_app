@@ -6,6 +6,7 @@ import LoginView from '@/views/LoginView.vue'
 import ResetPasswordView from '@/views/ResetPasswordView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import MovementsView from '@/views/MovementsView.vue'
+import PlanningView from '@/views/PlanningView.vue'
 
 import { useAuthStore } from '@/stores/auth'
 
@@ -51,6 +52,11 @@ const router = createRouter({
           path: 'movimientos',
           name: 'movements',
           component: MovementsView,
+        },
+        {
+          path: 'planificacion',
+          name: 'planning',
+          component: PlanningView,
         },
       ],
     },

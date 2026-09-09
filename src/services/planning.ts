@@ -54,6 +54,8 @@ export interface PlanningSummary {
   nextDays: DailyPlanPreview[]
 
   spentTodayCents: number
+
+  dailyPlan: DailyPlanPreview[]
 }
 
 interface RecurringItem {
@@ -614,7 +616,8 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
     riskScore: risk.score,
     riskLevel: risk.level,
-
+    
+    dailyPlan,
     nextDays: dailyPlan.slice(0, 7),
 
     spentTodayCents,

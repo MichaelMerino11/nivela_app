@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 
 import {
   AlertCircle,
@@ -17,10 +17,19 @@ import {
 } from '@/services/expenses'
 
 import { moneyToCents } from '@/utils/money'
+import { updateMovement, type Movement } from '@/services/movements'
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    movement?: Movement | null
+  }>(),
+  {
+    movement: null,
+  },
+)
+
+const isEditing = computed(() => props.movement !== null)
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
@@ -152,6 +161,50 @@ async function loadOptions() {
   }
 }
 
+async function fillMovement(movement: Movement) {
+  amount.value = (movement.amount_cents / 100).toFixed(2)
+
+  description.value = movement.description ?? ''
+
+  expenseMode.value = movement.is_exceptional ? 'exceptional' : 'normal'
+
+  isJustified.value = movement.is_justified
+
+  justification.value = movement.justification ?? ''
+
+  occurredDate.value = formatDateForInput(movement.occurred_at)
+
+  categoryId.value = movement.category_id
+
+  /*
+   * Esperamos al watch de categoría
+   * antes de restaurar la relación.
+   */
+  await nextTick()
+
+  if (movement.variable_rule_id) {
+    relationValue.value = `variable:${movement.variable_rule_id}`
+
+    return
+  }
+
+  if (movement.recurring_item_id) {
+    relationValue.value = `recurring:${movement.recurring_item_id}`
+
+    return
+  }
+
+  relationValue.value = 'none'
+}
+
+function formatDateForInput(value: string): string {
+  const date = new Date(value)
+
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+
+  return local.toISOString().slice(0, 10)
+}
+
 function buildOccurredAt(dateValue: string): string {
   const [yearPart, monthPart, dayPart] = dateValue.split('-')
 
@@ -237,7 +290,7 @@ async function saveExpense() {
 
     const { variableRuleId, recurringItemId } = resolveRelation()
 
-    await registerExpense({
+    const payload = {
       amountCents,
 
       categoryId: categoryId.value,
@@ -255,8 +308,18 @@ async function saveExpense() {
       variableRuleId,
       recurringItemId,
 
-      plannedExpenseId: null,
-    })
+      plannedExpenseId: props.movement?.planned_expense_id ?? null,
+    }
+
+    if (isEditing.value && props.movement) {
+      await updateMovement({
+        movementId: props.movement.id,
+
+        ...payload,
+      })
+    } else {
+      await registerExpense(payload)
+    }
 
     emit('saved')
 
@@ -274,6 +337,7 @@ async function saveExpense() {
 
 watch(
   () => props.modelValue,
+
   async (open) => {
     if (!open) {
       return
@@ -282,6 +346,10 @@ watch(
     resetForm()
 
     await loadOptions()
+
+    if (props.movement) {
+      await fillMovement(props.movement)
+    }
   },
 )
 
@@ -319,11 +387,21 @@ watch(expenseMode, (mode) => {
         </div>
 
         <div>
-          <span> MOVIMIENTO </span>
+          <span>
+            {{ isEditing ? 'EDITAR MOVIMIENTO' : 'MOVIMIENTO' }}
+          </span>
 
-          <h2>Registrar gasto</h2>
+          <h2>
+            {{ isEditing ? 'Editar gasto' : 'Registrar gasto' }}
+          </h2>
 
-          <p>Nivela recalculará tu planificación automáticamente.</p>
+          <p>
+            {{
+              isEditing
+                ? 'Los cambios recalcularán tu planificación automáticamente.'
+                : 'Nivela recalculará tu planificación automáticamente.'
+            }}
+          </p>
         </div>
       </div>
 
@@ -501,7 +579,7 @@ watch(expenseMode, (mode) => {
           :disabled="loading"
           @click="saveExpense"
         >
-          Guardar gasto
+          {{ isEditing ? 'Guardar cambios' : 'Guardar gasto' }}
         </v-btn>
       </div>
     </v-card>

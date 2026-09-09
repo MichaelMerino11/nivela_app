@@ -117,3 +117,57 @@ export async function deleteMovement(movementId: string): Promise<void> {
     throw error
   }
 }
+
+export interface UpdateMovementInput {
+  movementId: string
+
+  amountCents: number
+  categoryId: string
+
+  description?: string
+
+  isExceptional: boolean
+  isJustified: boolean
+  justification?: string
+
+  occurredAt: string
+
+  variableRuleId?: string | null
+  recurringItemId?: string | null
+  plannedExpenseId?: string | null
+}
+
+export async function updateMovement(input: UpdateMovementInput): Promise<void> {
+  if (!input.movementId || input.amountCents <= 0 || !input.categoryId) {
+    throw new Error('Los datos del movimiento no son válidos.')
+  }
+
+  const { error } = await supabase.rpc('update_transaction', {
+    p_transaction_id: input.movementId,
+
+    p_amount_cents: input.amountCents,
+
+    p_category_id: input.categoryId,
+
+    p_description: input.description?.trim() || null,
+
+    p_is_exceptional: input.isExceptional,
+
+    p_is_justified: input.isExceptional && input.isJustified,
+
+    p_justification:
+      input.isExceptional && input.isJustified ? input.justification?.trim() || null : null,
+
+    p_occurred_at: input.occurredAt,
+
+    p_variable_rule_id: input.variableRuleId ?? null,
+
+    p_recurring_item_id: input.recurringItemId ?? null,
+
+    p_planned_expense_id: input.plannedExpenseId ?? null,
+  })
+
+  if (error) {
+    throw error
+  }
+}

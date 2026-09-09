@@ -1,16 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import {
-  AlertTriangle,
-  CalendarDays,
-  Filter,
-  ReceiptText,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Trash2,
-} from 'lucide-vue-next'
+import { AlertTriangle, Filter, ReceiptText, Search, Sparkles, Trash2 } from 'lucide-vue-next'
 
 import { deleteMovement, getMovements, type Movement } from '@/services/movements'
 
@@ -23,6 +14,8 @@ import { useFinanceStore } from '@/stores/finance'
 import { format, parseISO } from 'date-fns'
 
 import { es } from 'date-fns/locale'
+
+import RegisterExpenseDialog from '@/components/expenses/RegisterExpenseDialog.vue'
 
 const financeStore = useFinanceStore()
 
@@ -49,6 +42,10 @@ const exceptionalOnly = ref(false)
 const deleteDialog = ref(false)
 
 const movementToDelete = ref<Movement | null>(null)
+
+const editDialog = ref(false)
+
+const movementToEdit = ref<Movement | null>(null)
 
 const filteredMovements = computed(() => {
   const term = search.value.trim().toLowerCase()
@@ -82,6 +79,20 @@ async function loadCategories() {
   const options = await getExpenseFormOptions()
 
   categories.value = options.categories
+}
+
+function editMovement(movement: Movement) {
+  movementToEdit.value = movement
+
+  editDialog.value = true
+}
+
+async function handleMovementEdited() {
+  financeStore.notifyFinancialChange()
+
+  await loadMovements()
+
+  movementToEdit.value = null
 }
 
 async function loadMovements() {
@@ -157,6 +168,12 @@ onMounted(async () => {
     await Promise.all([loadCategories(), loadMovements()])
   } catch (error: any) {
     console.error('ERROR INICIAL MOVIMIENTOS:', error)
+  }
+})
+
+watch(editDialog, (open) => {
+  if (!open) {
+    movementToEdit.value = null
   }
 })
 </script>
@@ -357,6 +374,11 @@ onMounted(async () => {
       </v-card>
     </v-dialog>
   </div>
+  <RegisterExpenseDialog
+    v-model="editDialog"
+    :movement="movementToEdit"
+    @saved="handleMovementEdited"
+  />
 </template>
 
 <style scoped lang="scss">

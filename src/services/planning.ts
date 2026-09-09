@@ -52,6 +52,8 @@ export interface PlanningSummary {
   riskLevel: RiskLevel
 
   nextDays: DailyPlanPreview[]
+
+  spentTodayCents: number
 }
 
 interface RecurringItem {
@@ -79,6 +81,14 @@ interface VariableRule {
   max_amount_cents: number
 
   priority: 'necessary' | 'flexible' | 'optional'
+}
+
+interface TransactionRecord {
+  kind: 'expense' | 'income'
+
+  amount_cents: number
+  occurred_at: string
+  created_at: string
 }
 
 function countOccurrences(item: RecurringItem, startDate: Date, endDate: Date): number {
@@ -194,53 +204,53 @@ function calculateDailyPlan(
 
     const routine = routineMap.get(weekday)
 
+    const normal = routine?.normal_amount_cents ?? 0
+
+    const maximum = Math.max(routine?.max_amount_cents ?? normal, normal)
+
     return {
       date,
 
-      activity: routine?.title || 'Día normal',
+      activity: routine?.title ?? 'Día normal',
 
-      normal: routine?.normal_amount_cents || 0,
-
-      maximum: routine?.max_amount_cents || routine?.normal_amount_cents || 0,
+      normal,
+      maximum,
     }
   })
 
-  const totalNormal = rawDays.reduce((total, day) => total + day.normal, 0)
-
   const available = Math.max(distributableCents, 0)
 
-  /*
-   * Si la rutina habitual cuesta más
-   * de lo disponible, reducimos todos
-   * los días proporcionalmente.
-   *
-   * Si alcanza, mantenemos la rutina
-   * normal y dejamos el sobrante como
-   * colchón financiero.
-   */
-  const scale = totalNormal > 0 && available < totalNormal ? available / totalNormal : 1
+  const totalNormal = rawDays.reduce((total, day) => total + day.normal, 0)
 
-  const normalBudgetTotal = rawDays.reduce((total, day) => total + day.normal, 0)
+  const totalMargin = rawDays.reduce(
+    (total, day) => total + Math.max(day.maximum - day.normal, 0),
+    0,
+  )
 
-  const remainingAfterNormal = Math.max(available - normalBudgetTotal, 0)
   /*
-   * Si todos los días tienen $0 de rutina,
-   * repartimos de forma uniforme.
+   * Si no alcanza para cubrir la rutina normal,
+   * reducimos todos los días proporcionalmente.
    */
-  const equalBudget =
-    totalNormal === 0 && rawDays.length > 0 ? Math.floor(available / rawDays.length) : 0
+  const normalScale = totalNormal > 0 ? Math.min(available / totalNormal, 1) : 0
+
+  /*
+   * El margen "máximo" solamente existe
+   * cuando ya podemos cubrir primero
+   * toda la rutina normal.
+   */
+  const extraAvailable = Math.max(available - totalNormal, 0)
+
+  const marginScale =
+    available > totalNormal && totalMargin > 0 ? Math.min(extraAvailable / totalMargin, 1) : 0
 
   return rawDays.map((day) => {
-    const recommended = totalNormal === 0 ? equalBudget : Math.round(day.normal * scale)
+    const recommended = Math.round(day.normal * normalScale)
 
     const routineMargin = Math.max(day.maximum - day.normal, 0)
 
-    const extraShare = rawDays.length > 0 ? Math.floor(remainingAfterNormal / rawDays.length) : 0
+    const allowedExtra = Math.round(routineMargin * marginScale)
 
-    const maximumRecommended = Math.max(
-      recommended,
-      Math.min(day.maximum, recommended + routineMargin + extraShare),
-    )
+    const maximumRecommended = Math.min(day.maximum, recommended + allowedExtra)
 
     return {
       date: format(day.date, 'yyyy-MM-dd'),
@@ -257,7 +267,7 @@ function calculateDailyPlan(
 
       recommendedCents: recommended,
 
-      maximumRecommendedCents: maximumRecommended,
+      maximumRecommendedCents: Math.max(recommended, maximumRecommended),
     }
   })
 }
@@ -284,9 +294,10 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     .from('balance_snapshots')
     .select(
       `
-      balance_cents,
-      snapshot_date
-    `,
+  balance_cents,
+  snapshot_date,
+  created_at
+`,
     )
     .eq('cycle_id', cycle.id)
     .order('snapshot_date', {
@@ -299,11 +310,12 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     throw snapshotError
   }
 
-  const [recurringResponse, routinesResponse, variablesResponse] = await Promise.all([
-    supabase
-      .from('recurring_items')
-      .select(
-        `
+  const [recurringResponse, routinesResponse, variablesResponse, transactionsResponse] =
+    await Promise.all([
+      supabase
+        .from('recurring_items')
+        .select(
+          `
         id,
         name,
         amount_cents,
@@ -312,32 +324,45 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
         day_of_month,
         is_essential
       `,
-      )
-      .eq('active', true),
+        )
+        .eq('active', true),
 
-    supabase
-      .from('routine_rules')
-      .select(
-        `
+      supabase
+        .from('routine_rules')
+        .select(
+          `
         weekday,
         title,
         normal_amount_cents,
         max_amount_cents
       `,
-      )
-      .eq('active', true),
+        )
+        .eq('active', true),
 
-    supabase
-      .from('variable_spending_rules')
-      .select(
-        `
+      supabase
+        .from('variable_spending_rules')
+        .select(
+          `
         expected_amount_cents,
         max_amount_cents,
         priority
       `,
-      )
-      .eq('active', true),
-  ])
+        )
+        .eq('active', true),
+
+      supabase
+        .from('transactions')
+        .select(
+          `
+    kind,
+    amount_cents,
+    occurred_at,
+    created_at
+  `,
+        )
+        .eq('cycle_id', cycle.id)
+        .gt('created_at', snapshot.created_at),
+    ])
 
   if (recurringResponse.error) {
     throw recurringResponse.error
@@ -349,6 +374,10 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   if (variablesResponse.error) {
     throw variablesResponse.error
+  }
+
+  if (transactionsResponse.error) {
+    throw transactionsResponse.error
   }
 
   const cycleStartDate = parseISO(cycle.start_date)
@@ -402,6 +431,14 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     return total + item.amount_cents * occurrences
   }, 0)
 
+  const essentialCommitmentsCents = recurringItems
+    .filter((item) => item.is_essential)
+    .reduce((total, item) => {
+      const occurrences = countOccurrences(item, effectiveStartDate, endDate)
+
+      return total + item.amount_cents * occurrences
+    }, 0)
+
   const fullVariableReserveCents = variables.reduce(
     (total, item) => total + item.expected_amount_cents,
     0,
@@ -421,7 +458,27 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const adjustableVariableCents = Math.round(fullAdjustableVariableCents * remainingCycleRatio)
 
-  const currentBalanceCents = snapshot.balance_cents
+  const transactions = transactionsResponse.data as TransactionRecord[]
+
+  const transactionDeltaCents = transactions.reduce((total, transaction) => {
+    if (transaction.kind === 'income') {
+      return total + transaction.amount_cents
+    }
+
+    return total - transaction.amount_cents
+  }, 0)
+
+  const todayKey = format(new Date(), 'yyyy-MM-dd')
+
+  const spentTodayCents = transactions
+    .filter(
+      (transaction) =>
+        transaction.kind === 'expense' &&
+        format(parseISO(transaction.occurred_at), 'yyyy-MM-dd') === todayKey,
+    )
+    .reduce((total, transaction) => total + transaction.amount_cents, 0)
+
+  const currentBalanceCents = snapshot.balance_cents + transactionDeltaCents
 
   const savingsTargetCents = cycle.savings_target_cents
 
@@ -429,7 +486,7 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     currentBalanceCents - savingsTargetCents - upcomingCommitmentsCents - variableReserveCents
 
   const essentialDistributableCents =
-    currentBalanceCents - savingsTargetCents - upcomingCommitmentsCents - necessaryVariableCents
+    currentBalanceCents - savingsTargetCents - essentialCommitmentsCents - necessaryVariableCents
 
   const routineMap = new Map(routines.map((routine) => [routine.weekday, routine]))
 
@@ -450,21 +507,15 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   return {
     cycleId: cycle.id,
-
     cycleStartDate: cycle.start_date,
-
     cycleEndDate: cycle.end_date,
-
     snapshotDate: snapshot.snapshot_date,
 
     currentBalanceCents,
-
     savingsTargetCents,
 
     upcomingCommitmentsCents,
-
     variableReserveCents,
-
     necessaryVariableCents,
     adjustableVariableCents,
 
@@ -479,9 +530,10 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     projectedSurplusCents,
 
     riskScore: risk.score,
-
     riskLevel: risk.level,
 
     nextDays: dailyPlan.slice(0, 7),
+
+    spentTodayCents,
   }
 }

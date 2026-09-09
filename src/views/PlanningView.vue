@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import {
   AlertTriangle,
@@ -11,19 +11,17 @@ import {
 } from 'lucide-vue-next'
 
 import { getPlanningSummary, type PlanningSummary } from '@/services/planning'
-
 import { centsToCurrency } from '@/utils/money'
-
 import { format, parseISO } from 'date-fns'
-
 import { es } from 'date-fns/locale'
+import PurchaseAdvisorCard from '@/components/planning/PurchaseAdvisorCard.vue'
+import PlanExpenseDialog from '@/components/planning/PlanExpenseDialog.vue'
+
+import { useFinanceStore } from '@/stores/finance'
 
 const summary = ref<PlanningSummary | null>(null)
-
 const loading = ref(true)
-
 const errorMessage = ref('')
-
 const totalRecommended = computed(
   () => summary.value?.dailyPlan.reduce((total, day) => total + day.recommendedCents, 0) ?? 0,
 )
@@ -65,6 +63,10 @@ const riskLabel = computed(() => {
   return 'Riesgo alto'
 })
 
+const financeStore = useFinanceStore()
+const planDialogOpen = ref(false)
+const amountToPlanCents = ref(0)
+
 async function loadPlanning() {
   errorMessage.value = ''
 
@@ -81,7 +83,25 @@ async function loadPlanning() {
   }
 }
 
+function openPlanDialog(amountCents: number) {
+  amountToPlanCents.value = amountCents
+
+  planDialogOpen.value = true
+}
+
+function handlePlanSaved() {
+  financeStore.notifyFinancialChange()
+}
+
 onMounted(loadPlanning)
+
+watch(
+  () => financeStore.revision,
+
+  async () => {
+    await loadPlanning()
+  },
+)
 </script>
 
 <template>
@@ -238,6 +258,8 @@ onMounted(loadPlanning)
         </div>
       </section>
 
+      <PurchaseAdvisorCard @plan="openPlanDialog" />
+
       <!-- DÍAS -->
       <section class="days-panel">
         <div class="panel-header">
@@ -308,6 +330,11 @@ onMounted(loadPlanning)
         </div>
       </section>
     </template>
+    <PlanExpenseDialog
+      v-model="planDialogOpen"
+      :initial-amount-cents="amountToPlanCents"
+      @saved="handlePlanSaved"
+    />
   </div>
 </template>
 

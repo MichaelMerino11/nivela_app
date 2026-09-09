@@ -35,6 +35,7 @@ export interface PlanningSummary {
 
   upcomingCommitmentsCents: number
   variableReserveCents: number
+  upcomingPlannedExpensesCents: number
   necessaryVariableCents: number
   adjustableVariableCents: number
 
@@ -85,6 +86,14 @@ interface VariableRule {
   max_amount_cents: number
 
   priority: 'necessary' | 'flexible' | 'optional'
+}
+
+interface PlannedExpense {
+  id: string
+  amount_cents: number
+  planned_date: string
+  reserve_funds: boolean
+  is_exceptional: boolean
 }
 
 interface TransactionRecord {
@@ -410,6 +419,28 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     effectiveStartDate = today
   }
 
+  const { data: plannedData, error: plannedError } = await supabase
+    .from('planned_expenses')
+    .select(
+      `
+    id,
+    amount_cents,
+    planned_date,
+    reserve_funds,
+    is_exceptional
+  `,
+    )
+    .eq('status', 'planned')
+    .eq('reserve_funds', true)
+    .gte('planned_date', format(effectiveStartDate, 'yyyy-MM-dd'))
+    .lte('planned_date', format(endDate, 'yyyy-MM-dd'))
+
+  if (plannedError) {
+    throw plannedError
+  }
+
+  const plannedExpenses = plannedData as PlannedExpense[]
+
   const remainingDates =
     effectiveStartDate <= endDate
       ? eachDayOfInterval({
@@ -479,6 +510,8 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const recurringSpentById = new Map<string, number>()
 
+  const plannedSpentById = new Map<string, number>()
+
   for (const transaction of relevantExpenses) {
     if (transaction.variable_rule_id) {
       const current = variableSpentById.get(transaction.variable_rule_id) ?? 0
@@ -490,6 +523,12 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
       const current = recurringSpentById.get(transaction.recurring_item_id) ?? 0
 
       recurringSpentById.set(transaction.recurring_item_id, current + transaction.amount_cents)
+    }
+
+    if (transaction.planned_expense_id) {
+      const current = plannedSpentById.get(transaction.planned_expense_id) ?? 0
+
+      plannedSpentById.set(transaction.planned_expense_id, current + transaction.amount_cents)
     }
   }
 
@@ -553,6 +592,15 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
   const adjustableVariableCents = variables
     .filter((item) => item.priority !== 'necessary')
     .reduce((total, item) => total + remainingVariableAmount(item), 0)
+
+  const upcomingPlannedExpensesCents = plannedExpenses.reduce((total, item) => {
+    const alreadySpent = plannedSpentById.get(item.id) ?? 0
+
+    const pending = Math.max(item.amount_cents - alreadySpent, 0)
+
+    return total + pending
+  }, 0)
+
   const todayKey = format(new Date(), 'yyyy-MM-dd')
 
   const spentTodayCents = transactions
@@ -568,7 +616,11 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
   const savingsTargetCents = cycle.savings_target_cents
 
   const distributableCents =
-    currentBalanceCents - savingsTargetCents - upcomingCommitmentsCents - variableReserveCents
+    currentBalanceCents -
+    savingsTargetCents -
+    upcomingCommitmentsCents -
+    variableReserveCents -
+    upcomingPlannedExpensesCents
 
   const essentialDistributableCents =
     currentBalanceCents - savingsTargetCents - essentialCommitmentsCents - necessaryVariableCents
@@ -601,6 +653,7 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
     upcomingCommitmentsCents,
     variableReserveCents,
+    upcomingPlannedExpensesCents,
     necessaryVariableCents,
     adjustableVariableCents,
 
@@ -616,7 +669,7 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
     riskScore: risk.score,
     riskLevel: risk.level,
-    
+
     dailyPlan,
     nextDays: dailyPlan.slice(0, 7),
 

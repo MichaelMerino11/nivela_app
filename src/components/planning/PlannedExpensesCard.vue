@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-
-import { AlertTriangle, CalendarDays, PiggyBank, Sparkles, X } from 'lucide-vue-next'
-
+import { AlertTriangle, CalendarDays, PiggyBank, Sparkles, X, CheckCircle2 } from 'lucide-vue-next'
 import {
   cancelPlannedExpense,
   getPlannedExpenses,
   type PlannedExpenseItem,
 } from '@/services/planned-expenses'
-
 import { centsToCurrency } from '@/utils/money'
-
 import { format, parseISO } from 'date-fns'
-
 import { es } from 'date-fns/locale'
+import CompletePlannedExpenseDialog from '@/components/planning/CompletePlannedExpenseDialog.vue'
 
 const props = defineProps<{
   refreshKey: number
@@ -24,19 +20,15 @@ const emit = defineEmits<{
 }>()
 
 const plans = ref<PlannedExpenseItem[]>([])
-
 const loading = ref(true)
-
 const cancellingId = ref<string | null>(null)
-
 const errorMessage = ref('')
-
 const cancelDialog = ref(false)
-
 const planToCancel = ref<PlannedExpenseItem | null>(null)
+const paymentDialog = ref(false)
 
+const planToPay = ref<PlannedExpenseItem | null>(null)
 const activePlans = computed(() => plans.value.filter((item) => item.status === 'planned'))
-
 const reservedTotal = computed(() =>
   activePlans.value
     .filter((item) => item.reserve_funds)
@@ -63,6 +55,20 @@ async function loadPlans() {
   } finally {
     loading.value = false
   }
+}
+
+function openPayment(plan: PlannedExpenseItem) {
+  planToPay.value = plan
+
+  paymentDialog.value = true
+}
+
+async function handlePaymentSaved() {
+  await loadPlans()
+
+  emit('changed')
+
+  planToPay.value = null
 }
 
 function askCancel(plan: PlannedExpenseItem) {
@@ -103,6 +109,12 @@ watch(
     await loadPlans()
   },
 )
+
+watch(paymentDialog, (open) => {
+  if (!open) {
+    planToPay.value = null
+  }
+})
 
 onMounted(loadPlans)
 </script>
@@ -194,6 +206,18 @@ onMounted(loadPlans)
         </div>
 
         <v-btn
+          color="success"
+          variant="tonal"
+          size="small"
+          class="paid-button"
+          @click="openPayment(plan)"
+        >
+          <CheckCircle2 :size="14" class="mr-1" />
+
+          Ya lo pagué
+        </v-btn>
+
+        <v-btn
           icon
           variant="text"
           size="small"
@@ -241,6 +265,11 @@ onMounted(loadPlans)
         </div>
       </v-card>
     </v-dialog>
+    <CompletePlannedExpenseDialog
+      v-model="paymentDialog"
+      :plan="planToPay"
+      @saved="handlePaymentSaved"
+    />
   </section>
 </template>
 
@@ -551,10 +580,20 @@ onMounted(loadPlans)
   margin-top: 18px;
 }
 
+.paid-button {
+  flex-shrink: 0;
+  text-transform: none;
+  font-size: 9px;
+}
+
 @media (max-width: 650px) {
   .planned-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .paid-button {
+    align-self: center;
   }
 
   .reserved-summary {

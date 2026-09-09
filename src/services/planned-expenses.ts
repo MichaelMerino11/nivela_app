@@ -8,7 +8,7 @@ export interface PlannedExpenseItem {
   amount_cents: number
   planned_date: string
 
-  status: 'planned' | 'completed' | 'cancelled'
+  status: 'planned' | 'paid' | 'cancelled'
 
   reserve_funds: boolean
   is_exceptional: boolean
@@ -120,4 +120,52 @@ export async function cancelPlannedExpense(plannedExpenseId: string): Promise<vo
   if (error) {
     throw error
   }
+}
+
+export interface CompletePlannedExpenseInput {
+  plannedExpenseId: string
+
+  actualAmountCents: number
+
+  categoryId: string
+
+  occurredAt: string
+}
+
+export async function completePlannedExpense(input: CompletePlannedExpenseInput): Promise<string> {
+  if (!input.plannedExpenseId) {
+    throw new Error('Gasto planificado inválido.')
+  }
+
+  if (!Number.isInteger(input.actualAmountCents) || input.actualAmountCents <= 0) {
+    throw new Error('El monto pagado debe ser mayor que cero.')
+  }
+
+  if (!input.categoryId) {
+    throw new Error('Selecciona una categoría.')
+  }
+
+  if (!input.occurredAt) {
+    throw new Error('Selecciona la fecha del pago.')
+  }
+
+  const { data, error } = await supabase.rpc('complete_planned_expense', {
+    p_planned_expense_id: input.plannedExpenseId,
+
+    p_actual_amount_cents: input.actualAmountCents,
+
+    p_category_id: input.categoryId,
+
+    p_occurred_at: input.occurredAt,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  if (!data) {
+    throw new Error('No se pudo registrar el pago.')
+  }
+
+  return data as string
 }

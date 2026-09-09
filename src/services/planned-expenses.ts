@@ -107,3 +107,17 @@ export async function createPlannedExpense(input: CreatePlannedExpenseInput): Pr
 
   return data as string
 }
+
+export async function cancelPlannedExpense(plannedExpenseId: string): Promise<void> {
+  if (!plannedExpenseId) {
+    throw new Error('Gasto planificado inválido.')
+  }
+
+  const { error } = await supabase.rpc('cancel_planned_expense', {
+    p_planned_expense_id: plannedExpenseId,
+  })
+
+  if (error) {
+    throw error
+  }
+}

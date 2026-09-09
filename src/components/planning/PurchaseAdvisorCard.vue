@@ -182,7 +182,7 @@ watch(amount, () => {
 
           <div class="advice-actions">
             <v-btn color="primary" variant="tonal" @click="emit('plan', advice.amountCents)">
-              Planificar este gasto
+              <strong>Planificar este gasto</strong>
             </v-btn>
           </div>
         </div>

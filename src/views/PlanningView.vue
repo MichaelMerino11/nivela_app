@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import PurchaseAdvisorCard from '@/components/planning/PurchaseAdvisorCard.vue'
 import PlanExpenseDialog from '@/components/planning/PlanExpenseDialog.vue'
+import PlannedExpensesCard from '@/components/planning/PlannedExpensesCard.vue'
 
 import { useFinanceStore } from '@/stores/finance'
 
@@ -259,6 +260,11 @@ watch(
       </section>
 
       <PurchaseAdvisorCard @plan="openPlanDialog" />
+
+      <PlannedExpensesCard
+        :refresh-key="financeStore.revision"
+        @changed="financeStore.notifyFinancialChange()"
+      />
 
       <!-- DÍAS -->
       <section class="days-panel">

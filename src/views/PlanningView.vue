@@ -266,6 +266,8 @@ watch(
         @changed="financeStore.notifyFinancialChange()"
       />
 
+      <PlannedVsActualCard :refresh-key="financeStore.revision" />
+
       <!-- DÍAS -->
       <section class="days-panel">
         <div class="panel-header">

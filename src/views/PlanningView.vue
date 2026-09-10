@@ -17,6 +17,7 @@ import { es } from 'date-fns/locale'
 import PurchaseAdvisorCard from '@/components/planning/PurchaseAdvisorCard.vue'
 import PlanExpenseDialog from '@/components/planning/PlanExpenseDialog.vue'
 import PlannedExpensesCard from '@/components/planning/PlannedExpensesCard.vue'
+import CycleRolloverDialog from '@/components/planning/CycleRolloverDialog.vue'
 
 import { useFinanceStore } from '@/stores/finance'
 
@@ -67,6 +68,8 @@ const riskLabel = computed(() => {
 const financeStore = useFinanceStore()
 const planDialogOpen = ref(false)
 const amountToPlanCents = ref(0)
+const rolloverDialogOpen = ref(false)
+const rolloverSuccess = ref(false)
 
 async function loadPlanning() {
   errorMessage.value = ''
@@ -91,6 +94,12 @@ function openPlanDialog(amountCents: number) {
 }
 
 function handlePlanSaved() {
+  financeStore.notifyFinancialChange()
+}
+
+function handleCycleCompleted() {
+  rolloverSuccess.value = true
+
   financeStore.notifyFinancialChange()
 }
 
@@ -140,16 +149,29 @@ watch(
           <p>Presupuesto recomendado desde hoy hasta tu próximo sueldo.</p>
         </div>
 
-        <div class="cycle-pill">
-          <CalendarDays :size="17" />
+        <div class="header-actions">
+          <div class="cycle-pill">
+            <CalendarDays :size="17" />
 
-          <div>
-            <span> Ciclo actual </span>
+            <div>
+              <span> Ciclo actual </span>
 
-            <strong>
-              {{ cycleLabel }}
-            </strong>
+              <strong>
+                {{ cycleLabel }}
+              </strong>
+            </div>
           </div>
+
+          <v-btn
+            color="primary"
+            variant="tonal"
+            class="salary-button"
+            @click="rolloverDialogOpen = true"
+          >
+            <WalletCards :size="16" class="mr-2" />
+
+            Recibí mi sueldo
+          </v-btn>
         </div>
       </section>
 
@@ -343,6 +365,11 @@ watch(
       :initial-amount-cents="amountToPlanCents"
       @saved="handlePlanSaved"
     />
+    <CycleRolloverDialog v-model="rolloverDialogOpen" @completed="handleCycleCompleted" />
+
+    <v-snackbar v-model="rolloverSuccess" color="success" :timeout="4500">
+      Nuevo ciclo financiero iniciado correctamente.
+    </v-snackbar>
   </div>
 </template>
 
@@ -746,6 +773,16 @@ watch(
   font-size: 10px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.salary-button {
+  text-transform: none;
+}
+
 @media (max-width: 1000px) {
   .summary-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -764,6 +801,16 @@ watch(
   }
 
   .cycle-pill {
+    width: 100%;
+  }
+
+  .header-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .salary-button {
     width: 100%;
   }
 

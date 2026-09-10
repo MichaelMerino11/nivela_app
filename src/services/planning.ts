@@ -461,8 +461,29 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const totalCycleDays = cycleDates.length
 
-  const remainingCycleRatio =
-    totalCycleDays > 0 ? Math.min(Math.max(daysRemaining / totalCycleDays, 0), 1) : 0
+  /*
+   * La reserva variable parte del momento
+   * en que se creó el saldo base.
+   *
+   * Así, el dinero reservado no se libera
+   * automáticamente solo porque pase un día.
+   */
+  let reserveStartDate = cycleStartDate
+
+  if (snapshotDate > reserveStartDate) {
+    reserveStartDate = snapshotDate
+  }
+
+  const reserveDates =
+    reserveStartDate <= endDate
+      ? eachDayOfInterval({
+          start: reserveStartDate,
+          end: endDate,
+        })
+      : []
+
+  const reserveCycleRatio =
+    totalCycleDays > 0 ? Math.min(Math.max(reserveDates.length / totalCycleDays, 0), 1) : 0
 
   const recurringItems = recurringResponse.data as RecurringItem[]
 
@@ -503,6 +524,15 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
   })
 
   /*
+   * Para reservas variables necesitamos
+   * recordar todos los gastos registrados
+   * desde el último snapshot.
+   */
+  const variableExpensesSinceSnapshot = transactions.filter(
+    (transaction) => transaction.kind === 'expense' && Boolean(transaction.variable_rule_id),
+  )
+
+  /*
    * Cuánto de cada reserva variable
    * o compromiso ya fue consumido.
    */
@@ -513,12 +543,6 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
   const plannedSpentById = new Map<string, number>()
 
   for (const transaction of relevantExpenses) {
-    if (transaction.variable_rule_id) {
-      const current = variableSpentById.get(transaction.variable_rule_id) ?? 0
-
-      variableSpentById.set(transaction.variable_rule_id, current + transaction.amount_cents)
-    }
-
     if (transaction.recurring_item_id) {
       const current = recurringSpentById.get(transaction.recurring_item_id) ?? 0
 
@@ -530,6 +554,20 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
       plannedSpentById.set(transaction.planned_expense_id, current + transaction.amount_cents)
     }
+  }
+
+  /*
+   * Los variables sí se calculan usando
+   * todo lo consumido desde el snapshot.
+   */
+  for (const transaction of variableExpensesSinceSnapshot) {
+    if (!transaction.variable_rule_id) {
+      continue
+    }
+
+    const current = variableSpentById.get(transaction.variable_rule_id) ?? 0
+
+    variableSpentById.set(transaction.variable_rule_id, current + transaction.amount_cents)
   }
 
   /*
@@ -573,7 +611,7 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
    * pendiente = $6
    */
   function remainingVariableAmount(item: VariableRule): number {
-    const expectedRemaining = Math.round(item.expected_amount_cents * remainingCycleRatio)
+    const expectedRemaining = Math.round(item.expected_amount_cents * reserveCycleRatio)
 
     const alreadySpent = variableSpentById.get(item.id) ?? 0
 

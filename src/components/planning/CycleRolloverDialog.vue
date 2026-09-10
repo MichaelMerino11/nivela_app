@@ -123,7 +123,9 @@ const canSubmit = computed(
     savingsTargetCents.value !== null &&
     savingsTargetCents.value >= 0 &&
     Boolean(receivedDate.value) &&
-    Boolean(nextPaydayDate.value),
+    receivedDate.value <= getToday() &&
+    Boolean(nextPaydayDate.value) &&
+    nextPaydayDate.value > receivedDate.value,
 )
 
 function resetForm() {

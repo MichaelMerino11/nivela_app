@@ -9,6 +9,7 @@ import PlanningView from '@/views/PlanningView.vue'
 import BudgetsView from '@/views/BudgetsView.vue'
 import SavingsView from '@/views/SavingsView.vue'
 import StatisticsView from '@/views/StatisticsView.vue'
+import SettingsView from '@/views/SettingsView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -84,6 +85,12 @@ const router = createRouter({
           path: 'estadisticas',
           name: 'statistics',
           component: StatisticsView,
+        },
+
+        {
+          path: 'configuracion',
+          name: 'settings',
+          component: SettingsView,
         },
       ],
     },

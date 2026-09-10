@@ -64,9 +64,10 @@ export async function getCycleRolloverContext(): Promise<CycleRolloverContext> {
       .from('financial_settings')
       .select(
         `
-        salary_cents,
-        usual_pay_day
-      `,
+    salary_cents,
+    usual_pay_day,
+    savings_target_cents
+    `,
       )
       .single(),
   ])
@@ -94,7 +95,7 @@ export async function getCycleRolloverContext(): Promise<CycleRolloverContext> {
 
     expectedIncomeCents: cycle.expected_income_cents,
 
-    savingsTargetCents: cycle.savings_target_cents,
+    savingsTargetCents: settings.savings_target_cents,
 
     salaryCents: settings.salary_cents,
 

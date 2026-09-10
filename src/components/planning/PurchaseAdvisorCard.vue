@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,12 +9,16 @@ import {
 } from 'lucide-vue-next'
 import { canIBuy, type PurchaseAdvice } from '@/services/purchase-advisor'
 import { centsToCurrency, moneyToCents } from '@/utils/money'
+import { getExpenseFormOptions, type ExpenseCategory } from '@/services/expenses'
 
 const emit = defineEmits<{
   (e: 'plan', amountCents: number): void
 }>()
 
 const amount = ref('')
+const categories = ref<ExpenseCategory[]>([])
+const categoryId = ref<string | null>(null)
+const loadingCategories = ref(false)
 const analyzing = ref(false)
 const errorMessage = ref('')
 const advice = ref<PurchaseAdvice | null>(null)
@@ -35,6 +39,20 @@ const decisionTitle = computed(() => {
   return 'Mejor no'
 })
 
+async function loadCategories() {
+  try {
+    loadingCategories.value = true
+
+    const options = await getExpenseFormOptions()
+
+    categories.value = options.categories
+  } catch (error) {
+    console.error('ERROR CARGANDO CATEGORÍAS:', error)
+  } finally {
+    loadingCategories.value = false
+  }
+}
+
 async function analyzePurchase() {
   errorMessage.value = ''
   advice.value = null
@@ -48,7 +66,7 @@ async function analyzePurchase() {
 
     analyzing.value = true
 
-    advice.value = await canIBuy(amountCents)
+    advice.value = await canIBuy(amountCents, categoryId.value)
   } catch (error: any) {
     console.error('ERROR ANALIZANDO COMPRA:', error)
 
@@ -66,6 +84,13 @@ watch(amount, () => {
   advice.value = null
   errorMessage.value = ''
 })
+
+watch(categoryId, () => {
+  advice.value = null
+  errorMessage.value = ''
+})
+
+onMounted(loadCategories)
 </script>
 
 <template>
@@ -105,6 +130,23 @@ watch(amount, () => {
             hide-details
             class="amount-input"
             @keyup.enter="analyzePurchase"
+          />
+        </div>
+
+        <div class="category-section">
+          <label> Categoría </label>
+
+          <v-select
+            v-model="categoryId"
+            :items="categories"
+            item-title="name"
+            item-value="id"
+            placeholder="Seleccionar"
+            clearable
+            :loading="loadingCategories"
+            variant="outlined"
+            density="comfortable"
+            hide-details
           />
         </div>
 
@@ -178,6 +220,71 @@ watch(amount, () => {
 
               <strong> {{ advice.currentRiskScore }}/100 </strong>
             </div>
+          </div>
+
+          <div v-if="advice.categoryId && advice.hasCategoryBudget" class="budget-impact">
+            <div class="budget-impact__header">
+              <div>
+                <span> PRESUPUESTO DE CATEGORÍA </span>
+
+                <strong>
+                  {{ advice.categoryName }}
+                </strong>
+              </div>
+
+              <span
+                class="budget-status"
+                :class="`budget-status--${advice.budgetStatusAfterPurchase}`"
+              >
+                {{ advice.budgetPercentageAfterPurchase }}%
+              </span>
+            </div>
+
+            <div class="budget-impact__values">
+              <div>
+                <span> Límite </span>
+
+                <strong>
+                  {{ centsToCurrency(advice.budgetLimitCents ?? 0) }}
+                </strong>
+              </div>
+
+              <div>
+                <span> Gastado </span>
+
+                <strong>
+                  {{ centsToCurrency(advice.budgetSpentCents ?? 0) }}
+                </strong>
+              </div>
+
+              <div>
+                <span> Después de comprar </span>
+
+                <strong>
+                  {{ centsToCurrency(advice.budgetAfterPurchaseCents ?? 0) }}
+                </strong>
+              </div>
+
+              <div>
+                <span> Disponible después </span>
+
+                <strong
+                  :class="{
+                    negative: (advice.budgetRemainingAfterPurchaseCents ?? 0) < 0,
+                  }"
+                >
+                  {{ centsToCurrency(advice.budgetRemainingAfterPurchaseCents ?? 0) }}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div v-else-if="advice.categoryId && !advice.hasCategoryBudget" class="no-budget-info">
+            La categoría
+            <strong>
+              {{ advice.categoryName }}
+            </strong>
+            todavía no tiene un presupuesto configurado.
           </div>
 
           <div class="advice-actions">
@@ -282,11 +389,136 @@ watch(amount, () => {
 
   grid-template-columns:
     minmax(0, 1fr)
+    minmax(180px, 0.7fr)
     auto;
 
   align-items: flex-end;
 
   gap: 12px;
+}
+
+.category-section label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #334155;
+
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.budget-impact {
+  margin-top: 14px;
+  padding: 13px;
+
+  border: 1px solid rgba(148, 163, 184, 0.22);
+
+  border-radius: 13px;
+
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.budget-impact__header {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 10px;
+}
+
+.budget-impact__header > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.budget-impact__header span {
+  color: #94a3b8;
+
+  font-size: 7px;
+  font-weight: 700;
+
+  letter-spacing: 0.7px;
+}
+
+.budget-impact__header strong {
+  margin-top: 2px;
+
+  color: #334155;
+
+  font-size: 10px;
+}
+
+.budget-status {
+  padding: 4px 7px;
+
+  border-radius: 999px;
+
+  font-size: 8px !important;
+}
+
+.budget-status--normal {
+  background: #ecfdf3;
+  color: #16a34a !important;
+}
+
+.budget-status--warning {
+  background: #fff7ed;
+  color: #d97706 !important;
+}
+
+.budget-status--exceeded {
+  background: #fff1f2;
+  color: #e11d48 !important;
+}
+
+.budget-impact__values {
+  display: grid;
+
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+
+  gap: 8px;
+
+  margin-top: 10px;
+}
+
+.budget-impact__values > div {
+  display: flex;
+  flex-direction: column;
+
+  padding: 8px;
+
+  border-radius: 10px;
+
+  background: white;
+}
+
+.budget-impact__values span {
+  color: #94a3b8;
+
+  font-size: 7px;
+}
+
+.budget-impact__values strong {
+  margin-top: 2px;
+
+  color: #334155;
+
+  font-size: 10px;
+}
+
+.no-budget-info {
+  margin-top: 13px;
+  padding: 10px 12px;
+
+  border-radius: 11px;
+
+  background: rgba(255, 255, 255, 0.7);
+
+  color: #64748b;
+
+  font-size: 8px;
 }
 
 .amount-section label {
@@ -486,9 +718,14 @@ watch(amount, () => {
     grid-template-columns: 1fr;
   }
 
+  .budget-impact__values {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .advisor-form :deep(.v-btn) {
     width: 100%;
   }
+
 
   .impact-grid {
     grid-template-columns: 1fr 1fr;

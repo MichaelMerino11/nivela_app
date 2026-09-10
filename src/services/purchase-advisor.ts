@@ -1,5 +1,7 @@
 import { getPlanningSummary } from '@/services/planning'
 
+import { getBudgetOverview, type BudgetStatus } from '@/services/budgets'
+
 export type PurchaseDecision = 'yes' | 'careful' | 'no'
 
 export interface PurchaseAdvice {
@@ -13,98 +15,176 @@ export interface PurchaseAdvice {
   currentRiskScore: number
 
   message: string
+
+  categoryId: string | null
+  categoryName: string | null
+
+  hasCategoryBudget: boolean
+
+  budgetLimitCents: number | null
+  budgetSpentCents: number | null
+  budgetAfterPurchaseCents: number | null
+  budgetRemainingAfterPurchaseCents: number | null
+
+  budgetPercentageAfterPurchase: number | null
+
+  budgetStatusAfterPurchase: BudgetStatus | null
 }
 
-export async function canIBuy(amountCents: number): Promise<PurchaseAdvice> {
+export async function canIBuy(
+  amountCents: number,
+  categoryId?: string | null,
+): Promise<PurchaseAdvice> {
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     throw new Error('El monto debe ser mayor que cero.')
   }
 
-  const summary = await getPlanningSummary()
+  const [summary, budgetOverview] = await Promise.all([getPlanningSummary(), getBudgetOverview()])
 
   const currentAvailableCents = summary.distributableCents
 
   const availableAfterPurchaseCents = currentAvailableCents - amountCents
 
   /*
-   * Si Nivela ya detecta riesgo alto,
-   * no recomendamos agregar una compra
-   * nueva aunque matemáticamente todavía
-   * exista algo de margen.
+   * Presupuesto de la categoría,
+   * si el usuario seleccionó una.
+   */
+  const category = categoryId
+    ? budgetOverview.categories.find((item) => item.categoryId === categoryId)
+    : undefined
+
+  const hasCategoryBudget = Boolean(category && category.limitCents !== null)
+
+  const budgetLimitCents = hasCategoryBudget ? category!.limitCents : null
+
+  const budgetSpentCents = hasCategoryBudget ? category!.spentCents : null
+
+  const budgetAfterPurchaseCents = hasCategoryBudget ? category!.spentCents + amountCents : null
+
+  const budgetRemainingAfterPurchaseCents =
+    hasCategoryBudget && budgetLimitCents !== null && budgetAfterPurchaseCents !== null
+      ? budgetLimitCents - budgetAfterPurchaseCents
+      : null
+
+  let budgetPercentageAfterPurchase: number | null = null
+
+  let budgetStatusAfterPurchase: BudgetStatus | null = null
+
+  if (
+    hasCategoryBudget &&
+    category &&
+    budgetLimitCents !== null &&
+    budgetAfterPurchaseCents !== null
+  ) {
+    if (budgetLimitCents > 0) {
+      budgetPercentageAfterPurchase = Math.round(
+        (budgetAfterPurchaseCents / budgetLimitCents) * 100,
+      )
+    } else {
+      budgetPercentageAfterPurchase = budgetAfterPurchaseCents > 0 ? 100 : 0
+    }
+
+    if (budgetAfterPurchaseCents > budgetLimitCents) {
+      budgetStatusAfterPurchase = 'exceeded'
+    } else if (budgetPercentageAfterPurchase >= category.warningPercentage) {
+      budgetStatusAfterPurchase = 'warning'
+    } else {
+      budgetStatusAfterPurchase = 'normal'
+    }
+  }
+
+  const baseResult = {
+    amountCents,
+
+    currentAvailableCents,
+    availableAfterPurchaseCents,
+
+    currentRiskScore: summary.riskScore,
+
+    categoryId: category?.categoryId ?? null,
+
+    categoryName: category?.categoryName ?? null,
+
+    hasCategoryBudget,
+
+    budgetLimitCents,
+    budgetSpentCents,
+    budgetAfterPurchaseCents,
+    budgetRemainingAfterPurchaseCents,
+    budgetPercentageAfterPurchase,
+    budgetStatusAfterPurchase,
+  }
+
+  /*
+   * Primero protegemos la situación
+   * financiera global.
    */
   if (summary.riskLevel === 'high') {
     return {
+      ...baseResult,
+
       decision: 'no',
-
-      amountCents,
-
-      currentAvailableCents,
-
-      availableAfterPurchaseCents,
-
-      currentRiskScore: summary.riskScore,
 
       message:
         'Tu situación actual ya está en riesgo alto. Nivela recomienda posponer esta compra.',
     }
   }
 
-  /*
-   * La compra llevaría el dinero
-   * tranquilo a negativo.
-   */
   if (availableAfterPurchaseCents < 0) {
     return {
+      ...baseResult,
+
       decision: 'no',
-
-      amountCents,
-
-      currentAvailableCents,
-
-      availableAfterPurchaseCents,
-
-      currentRiskScore: summary.riskScore,
 
       message:
         'Esta compra dejaría tu dinero tranquilo en negativo y comprometería tu planificación actual.',
     }
   }
 
+  /*
+   * Después comprobamos el presupuesto
+   * específico de la categoría.
+   */
+  if (budgetStatusAfterPurchase === 'exceeded' && category) {
+    return {
+      ...baseResult,
+
+      decision: 'careful',
+
+      message: `La compra cabe en tu situación general, pero haría que excedas el presupuesto de ${category.categoryName}.`,
+    }
+  }
+
+  if (budgetStatusAfterPurchase === 'warning' && category) {
+    return {
+      ...baseResult,
+
+      decision: 'careful',
+
+      message: `Puedes hacerlo, pero quedarías cerca del límite de tu presupuesto de ${category.categoryName}.`,
+    }
+  }
+
   const remainingRatio =
     currentAvailableCents > 0 ? availableAfterPurchaseCents / currentAvailableCents : 0
 
-  /*
-   * Todavía es posible, pero consumiría
-   * demasiado margen.
-   */
   if (remainingRatio < 0.35 || summary.riskLevel === 'medium') {
     return {
+      ...baseResult,
+
       decision: 'careful',
-
-      amountCents,
-
-      currentAvailableCents,
-
-      availableAfterPurchaseCents,
-
-      currentRiskScore: summary.riskScore,
 
       message: 'Podrías hacerlo, pero consumirías una parte importante de tu margen disponible.',
     }
   }
 
   return {
+    ...baseResult,
+
     decision: 'yes',
 
-    amountCents,
-
-    currentAvailableCents,
-
-    availableAfterPurchaseCents,
-
-    currentRiskScore: summary.riskScore,
-
-    message:
-      'La compra cabe dentro de tu planificación actual sin comprometer el dinero que ya protegiste.',
+    message: hasCategoryBudget
+      ? 'La compra cabe dentro de tu planificación y también respeta el presupuesto de la categoría.'
+      : 'La compra cabe dentro de tu planificación actual. Esta categoría todavía no tiene un presupuesto configurado.',
   }
 }

@@ -13,9 +13,11 @@ const props = withDefaults(
   defineProps<{
     modelValue: boolean
     initialAmountCents?: number
+    initialCategoryId?: string | null
   }>(),
   {
     initialAmountCents: 0,
+    initialCategoryId: null,
   },
 )
 
@@ -65,7 +67,7 @@ function resetForm() {
   today.value = getToday()
 
   name.value = ''
-  categoryId.value = null
+  categoryId.value = props.initialCategoryId ?? null
   plannedDate.value = today.value
 
   reserveFunds.value = true

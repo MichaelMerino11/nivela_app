@@ -73,6 +73,7 @@ interface RecurringItem {
 }
 
 interface RoutineRule {
+  category_id: string | null
   weekday: number
   title: string
   normal_amount_cents: number
@@ -86,6 +87,16 @@ interface VariableRule {
   max_amount_cents: number
 
   priority: 'necessary' | 'flexible' | 'optional'
+}
+
+interface CategoryBudget {
+  category_id: string
+  limit_cents: number
+}
+
+interface BudgetExpense {
+  category_id: string | null
+  amount_cents: number
 }
 
 interface PlannedExpense {
@@ -213,6 +224,7 @@ function calculateDailyPlan(
   dates: Date[],
   routines: RoutineRule[],
   distributableCents: number,
+  categoryBudgetRemaining: Map<string, number>,
 ): DailyPlanPreview[] {
   const routineMap = new Map(routines.map((routine) => [routine.weekday, routine]))
 
@@ -228,6 +240,8 @@ function calculateDailyPlan(
     return {
       date,
 
+      categoryId: routine?.category_id ?? null,
+
       activity: routine?.title ?? 'Día normal',
 
       normal,
@@ -235,6 +249,11 @@ function calculateDailyPlan(
     }
   })
 
+  /*
+   * Primera capa:
+   * cuánto permite la situación
+   * financiera general.
+   */
   const available = Math.max(distributableCents, 0)
 
   const totalNormal = rawDays.reduce((total, day) => total + day.normal, 0)
@@ -244,23 +263,14 @@ function calculateDailyPlan(
     0,
   )
 
-  /*
-   * Si no alcanza para cubrir la rutina normal,
-   * reducimos todos los días proporcionalmente.
-   */
   const normalScale = totalNormal > 0 ? Math.min(available / totalNormal, 1) : 0
 
-  /*
-   * El margen "máximo" solamente existe
-   * cuando ya podemos cubrir primero
-   * toda la rutina normal.
-   */
   const extraAvailable = Math.max(available - totalNormal, 0)
 
   const marginScale =
     available > totalNormal && totalMargin > 0 ? Math.min(extraAvailable / totalMargin, 1) : 0
 
-  return rawDays.map((day) => {
+  const calculatedDays = rawDays.map((day) => {
     const recommended = Math.round(day.normal * normalScale)
 
     const routineMargin = Math.max(day.maximum - day.normal, 0)
@@ -270,23 +280,124 @@ function calculateDailyPlan(
     const maximumRecommended = Math.min(day.maximum, recommended + allowedExtra)
 
     return {
-      date: format(day.date, 'yyyy-MM-dd'),
-
-      label: format(day.date, "EEE d 'de' MMM", {
-        locale: es,
-      }),
-
-      activity: day.activity,
-
-      routineNormalCents: day.normal,
-
-      routineMaxCents: day.maximum,
-
-      recommendedCents: recommended,
-
-      maximumRecommendedCents: Math.max(recommended, maximumRecommended),
+      ...day,
+      recommended,
+      maximumRecommended,
     }
   })
+
+  /*
+   * Segunda capa:
+   * el presupuesto de categoría
+   * funciona únicamente como techo.
+   *
+   * NO vuelve a restarse del saldo.
+   */
+  const indexesByCategory = new Map<string, number[]>()
+
+  calculatedDays.forEach((day, index) => {
+    if (!day.categoryId) {
+      return
+    }
+
+    if (!categoryBudgetRemaining.has(day.categoryId)) {
+      return
+    }
+
+    const indexes = indexesByCategory.get(day.categoryId) ?? []
+
+    indexes.push(index)
+
+    indexesByCategory.set(day.categoryId, indexes)
+  })
+
+  for (const [categoryId, indexes] of indexesByCategory) {
+    const remainingBudget = Math.max(categoryBudgetRemaining.get(categoryId) ?? 0, 0)
+
+    const totalRecommended = indexes.reduce((total, index) => {
+      const day = calculatedDays[index]
+
+      return total + (day?.recommended ?? 0)
+    }, 0)
+
+    /*
+     * Si el presupuesto ni siquiera
+     * alcanza para las recomendaciones
+     * normales, las reducimos
+     * proporcionalmente.
+     */
+    if (totalRecommended > remainingBudget) {
+      const scale = totalRecommended > 0 ? remainingBudget / totalRecommended : 0
+
+      for (const index of indexes) {
+        const day = calculatedDays[index]
+
+        if (!day) {
+          continue
+        }
+
+        const adjusted = Math.floor(day.recommended * scale)
+
+        day.recommended = adjusted
+
+        day.maximumRecommended = adjusted
+      }
+
+      continue
+    }
+
+    /*
+     * Las recomendaciones normales
+     * caben. Ahora limitamos únicamente
+     * cuánto margen adicional puede
+     * utilizar esa categoría.
+     */
+    const budgetForExtras = Math.max(remainingBudget - totalRecommended, 0)
+
+    const totalExtras = indexes.reduce((total, index) => {
+      const day = calculatedDays[index]
+
+      if (!day) {
+        return total
+      }
+
+      return total + Math.max(day.maximumRecommended - day.recommended, 0)
+    }, 0)
+
+    const extraScale = totalExtras > 0 ? Math.min(budgetForExtras / totalExtras, 1) : 0
+
+    for (const index of indexes) {
+      const day = calculatedDays[index]
+
+      if (!day) {
+        continue
+      }
+
+      const extra = Math.max(day.maximumRecommended - day.recommended, 0)
+
+      const adjustedExtra = Math.floor(extra * extraScale)
+
+      day.maximumRecommended = day.recommended + adjustedExtra
+    }
+  }
+
+  return calculatedDays.map((day) => ({
+    date: format(day.date, 'yyyy-MM-dd'),
+
+    label: format(day.date, "EEE d 'de' MMM", {
+      locale: es,
+    }),
+
+    activity: day.activity,
+
+    routineNormalCents: day.normal,
+
+    routineMaxCents: day.maximum,
+
+    recommendedCents: day.recommended,
+
+    maximumRecommendedCents: Math.max(day.recommended, day.maximumRecommended),
+  }))
 }
 
 export async function getPlanningSummary(): Promise<PlanningSummary> {
@@ -327,12 +438,18 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     throw snapshotError
   }
 
-  const [recurringResponse, routinesResponse, variablesResponse, transactionsResponse] =
-    await Promise.all([
-      supabase
-        .from('recurring_items')
-        .select(
-          `
+  const [
+    recurringResponse,
+    routinesResponse,
+    variablesResponse,
+    transactionsResponse,
+    budgetsResponse,
+    budgetExpensesResponse,
+  ] = await Promise.all([
+    supabase
+      .from('recurring_items')
+      .select(
+        `
         id,
         name,
         amount_cents,
@@ -341,37 +458,38 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
         day_of_month,
         is_essential
       `,
-        )
-        .eq('active', true),
+      )
+      .eq('active', true),
 
-      supabase
-        .from('routine_rules')
-        .select(
-          `
-        weekday,
-        title,
-        normal_amount_cents,
-        max_amount_cents
-      `,
-        )
-        .eq('active', true),
+    supabase
+      .from('routine_rules')
+      .select(
+        `
+    category_id,
+    weekday,
+    title,
+    normal_amount_cents,
+    max_amount_cents
+    `,
+      )
+      .eq('active', true),
 
-      supabase
-        .from('variable_spending_rules')
-        .select(
-          `
+    supabase
+      .from('variable_spending_rules')
+      .select(
+        `
     id,
     expected_amount_cents,
     max_amount_cents,
     priority
   `,
-        )
-        .eq('active', true),
+      )
+      .eq('active', true),
 
-      supabase
-        .from('transactions')
-        .select(
-          `
+    supabase
+      .from('transactions')
+      .select(
+        `
     kind,
     amount_cents,
     occurred_at,
@@ -380,10 +498,30 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     recurring_item_id,
     planned_expense_id
   `,
-        )
-        .eq('cycle_id', cycle.id)
-        .gt('created_at', snapshot.created_at),
-    ])
+      )
+      .eq('cycle_id', cycle.id)
+      .gt('created_at', snapshot.created_at),
+    supabase
+      .from('category_budgets')
+      .select(
+        `
+    category_id,
+    limit_cents
+    `,
+      )
+      .eq('active', true),
+
+    supabase
+      .from('transactions')
+      .select(
+        `
+    category_id,
+    amount_cents
+    `,
+      )
+      .eq('cycle_id', cycle.id)
+      .eq('kind', 'expense'),
+  ])
 
   if (recurringResponse.error) {
     throw recurringResponse.error
@@ -399,6 +537,14 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   if (transactionsResponse.error) {
     throw transactionsResponse.error
+  }
+
+  if (budgetsResponse.error) {
+    throw budgetsResponse.error
+  }
+
+  if (budgetExpensesResponse.error) {
+    throw budgetExpensesResponse.error
   }
 
   const cycleStartDate = parseISO(cycle.start_date)
@@ -492,6 +638,10 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
   const variables = variablesResponse.data as VariableRule[]
 
   const transactions = transactionsResponse.data as TransactionRecord[]
+
+  const categoryBudgets = budgetsResponse.data as CategoryBudget[]
+
+  const budgetExpenses = budgetExpensesResponse.data as BudgetExpense[]
 
   /*
    * Variación real del saldo desde
@@ -649,6 +799,37 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
     )
     .reduce((total, transaction) => total + transaction.amount_cents, 0)
 
+  /*
+   * Gasto real acumulado durante
+   * todo el ciclo por categoría.
+   */
+  const spentByCategory = new Map<string, number>()
+
+  for (const expense of budgetExpenses) {
+    if (!expense.category_id) {
+      continue
+    }
+
+    const current = spentByCategory.get(expense.category_id) ?? 0
+
+    spentByCategory.set(expense.category_id, current + expense.amount_cents)
+  }
+
+  /*
+   * Cuánto queda disponible dentro
+   * de cada presupuesto.
+   *
+   * Esto es un TECHO.
+   * No se resta del saldo.
+   */
+  const categoryBudgetRemaining = new Map<string, number>()
+
+  for (const budget of categoryBudgets) {
+    const spent = spentByCategory.get(budget.category_id) ?? 0
+
+    categoryBudgetRemaining.set(budget.category_id, Math.max(budget.limit_cents - spent, 0))
+  }
+
   const currentBalanceCents = snapshot.balance_cents + transactionDeltaCents
 
   const savingsTargetCents = cycle.savings_target_cents
@@ -665,11 +846,48 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const routineMap = new Map(routines.map((routine) => [routine.weekday, routine]))
 
-  const routineNeedCents = remainingDates.reduce((total, date) => {
+  /*
+   * Necesidad habitual de las rutinas
+   * respetando el techo configurado
+   * para cada categoría.
+   *
+   * El presupuesto NO se resta
+   * nuevamente del dinero disponible.
+   */
+  const routineNeedByCategory = new Map<string, number>()
+
+  let unrestrictedRoutineNeedCents = 0
+
+  for (const date of remainingDates) {
     const routine = routineMap.get(getISODay(date))
 
-    return total + (routine?.normal_amount_cents || 0)
-  }, 0)
+    if (!routine) {
+      continue
+    }
+
+    /*
+     * Si la rutina no tiene categoría
+     * o esa categoría no tiene presupuesto,
+     * conserva su valor habitual completo.
+     */
+    if (!routine.category_id || !categoryBudgetRemaining.has(routine.category_id)) {
+      unrestrictedRoutineNeedCents += routine.normal_amount_cents
+
+      continue
+    }
+
+    const current = routineNeedByCategory.get(routine.category_id) ?? 0
+
+    routineNeedByCategory.set(routine.category_id, current + routine.normal_amount_cents)
+  }
+
+  let routineNeedCents = unrestrictedRoutineNeedCents
+
+  for (const [categoryId, normalNeed] of routineNeedByCategory) {
+    const remainingBudget = categoryBudgetRemaining.get(categoryId) ?? normalNeed
+
+    routineNeedCents += Math.min(normalNeed, remainingBudget)
+  }
 
   const dailyAverageCents =
     daysRemaining > 0 ? Math.floor(Math.max(distributableCents, 0) / daysRemaining) : 0
@@ -678,7 +896,12 @@ export async function getPlanningSummary(): Promise<PlanningSummary> {
 
   const risk = calculateRisk(distributableCents, essentialDistributableCents, routineNeedCents)
 
-  const dailyPlan = calculateDailyPlan(remainingDates, routines, distributableCents)
+  const dailyPlan = calculateDailyPlan(
+    remainingDates,
+    routines,
+    distributableCents,
+    categoryBudgetRemaining,
+  )
 
   return {
     cycleId: cycle.id,

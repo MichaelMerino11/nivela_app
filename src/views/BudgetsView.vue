@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,7 +10,6 @@ import {
   Trash2,
   WalletCards,
 } from 'lucide-vue-next'
-
 import {
   disableCategoryBudget,
   getBudgetOverview,
@@ -19,47 +17,36 @@ import {
   type BudgetOverview,
   type CategoryBudgetSummary,
 } from '@/services/budgets'
-
 import { centsToCurrency, moneyToCents } from '@/utils/money'
-
 import { useFinanceStore } from '@/stores/finance'
-
 import { format, parseISO } from 'date-fns'
-
 import { es } from 'date-fns/locale'
+import {
+  getRoutineBudgetRules,
+  setRoutineCategory,
+  type RoutineBudgetRule,
+} from '@/services/routines'
 
 const financeStore = useFinanceStore()
-
 const overview = ref<BudgetOverview | null>(null)
-
 const loading = ref(true)
-
 const saving = ref(false)
-
 const disabling = ref(false)
-
 const errorMessage = ref('')
-
+const routines = ref<RoutineBudgetRule[]>([])
+const savingRoutineId = ref<string | null>(null)
 const budgetDialog = ref(false)
-
 const disableDialog = ref(false)
-
 const selectedCategory = ref<CategoryBudgetSummary | null>(null)
-
 const budgetToDisable = ref<CategoryBudgetSummary | null>(null)
-
 const limitAmount = ref('')
-
 const warningPercentage = ref(80)
-
 const configuredCategories = computed(
   () => overview.value?.categories.filter((category) => category.budgetId !== null) ?? [],
 )
-
 const unconfiguredCategories = computed(
   () => overview.value?.categories.filter((category) => category.budgetId === null) ?? [],
 )
-
 const cycleLabel = computed(() => {
   if (!overview.value) {
     return '—'
@@ -108,13 +95,68 @@ function progressValue(category: CategoryBudgetSummary): number {
   return Math.min(Math.max(category.percentageUsed, 0), 100)
 }
 
+function weekdayLabel(weekday: number): string {
+  const labels: Record<number, string> = {
+    1: 'Lunes',
+    2: 'Martes',
+    3: 'Miércoles',
+    4: 'Jueves',
+    5: 'Viernes',
+    6: 'Sábado',
+    7: 'Domingo',
+  }
+
+  return labels[weekday] ?? 'Día'
+}
+
+async function changeRoutineCategory(routine: RoutineBudgetRule, categoryId: string | null) {
+  errorMessage.value = ''
+
+  try {
+    savingRoutineId.value = routine.id
+
+    await setRoutineCategory(routine.id, categoryId)
+
+    /*
+     * Actualización inmediata en pantalla.
+     */
+    routine.category_id = categoryId
+
+    /*
+     * Avisamos al resto de Nivela porque
+     * esta relación afectará posteriormente
+     * la planificación.
+     */
+    financeStore.notifyFinancialChange()
+  } catch (error: any) {
+    console.error('ERROR ACTUALIZANDO RUTINA:', error)
+
+    errorMessage.value = error?.message || 'No pudimos actualizar la categoría de la rutina.'
+
+    /*
+     * Si algo falló, recuperamos
+     * nuevamente el estado real.
+     */
+    await loadBudgets()
+  } finally {
+    savingRoutineId.value = null
+  }
+}
+
 async function loadBudgets() {
   errorMessage.value = ''
 
   try {
     loading.value = true
 
-    overview.value = await getBudgetOverview()
+    const [budgetOverview, routineRules] = await Promise.all([
+      getBudgetOverview(),
+      getRoutineBudgetRules(),
+    ])
+
+    overview.value = budgetOverview
+
+    routines.value = routineRules
   } catch (error: any) {
     console.error('ERROR CARGANDO PRESUPUESTOS:', error)
 
@@ -502,6 +544,89 @@ onMounted(loadBudgets)
         </div>
       </section>
     </template>
+
+    <!-- RUTINAS Y CATEGORÍAS -->
+    <section class="routine-section">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow"> PLAN DIARIO </span>
+
+          <h2>Rutinas y categorías</h2>
+
+          <p>Indica a qué categoría pertenece cada gasto habitual de tu semana.</p>
+        </div>
+      </div>
+
+      <div v-if="routines.length === 0" class="empty-state routine-empty">
+        <div class="empty-icon">
+          <WalletCards :size="23" />
+        </div>
+
+        <strong> No tienes rutinas configuradas </strong>
+
+        <span> Tus rutinas aparecerán aquí cuando estén disponibles. </span>
+      </div>
+
+      <div v-else class="routine-list">
+        <article v-for="routine in routines" :key="routine.id" class="routine-row">
+          <div class="routine-day">
+            <span>
+              {{ weekdayLabel(routine.weekday) }}
+            </span>
+
+            <strong>
+              {{ routine.title }}
+            </strong>
+          </div>
+
+          <div class="routine-values">
+            <div>
+              <span> Habitual </span>
+
+              <strong>
+                {{ centsToCurrency(routine.normal_amount_cents) }}
+              </strong>
+            </div>
+
+            <div>
+              <span> Máximo </span>
+
+              <strong>
+                {{ centsToCurrency(routine.max_amount_cents) }}
+              </strong>
+            </div>
+          </div>
+
+          <div class="routine-category">
+            <span> Categoría </span>
+
+            <v-select
+              :model-value="routine.category_id"
+              :items="overview?.categories ?? []"
+              item-title="categoryName"
+              item-value="categoryId"
+              placeholder="Sin categoría"
+              clearable
+              hide-details
+              density="compact"
+              variant="outlined"
+              :loading="savingRoutineId === routine.id"
+              :disabled="savingRoutineId !== null"
+              @update:model-value="changeRoutineCategory(routine, $event)"
+            />
+          </div>
+        </article>
+      </div>
+
+      <div class="routine-help">
+        <strong> ¿Por qué importa? </strong>
+
+        <span>
+          Esto permitirá que Nivela relacione tus límites por categoría con el presupuesto de cada
+          día sin contar el mismo dinero dos veces.
+        </span>
+      </div>
+    </section>
 
     <!-- CREAR / EDITAR -->
     <v-dialog v-model="budgetDialog" max-width="480">
@@ -1090,6 +1215,135 @@ onMounted(loadBudgets)
   font-size: 11px;
 }
 
+.routine-section {
+  margin-top: 17px;
+  padding: 20px;
+
+  border: 1px solid #e8edf4;
+  border-radius: 20px;
+
+  background: white;
+}
+
+.routine-list {
+  margin-top: 15px;
+}
+
+.routine-row {
+  display: grid;
+
+  grid-template-columns:
+    minmax(160px, 1fr)
+    minmax(160px, 0.8fr)
+    minmax(210px, 1fr);
+
+  align-items: center;
+
+  gap: 18px;
+
+  padding: 13px 2px;
+
+  border-bottom: 1px solid #edf1f5;
+}
+
+.routine-row:last-child {
+  border-bottom: 0;
+}
+
+.routine-day {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.routine-day span {
+  color: #94a3b8;
+  font-size: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.routine-day strong {
+  margin-top: 3px;
+
+  color: #334155;
+
+  font-size: 10px;
+}
+
+.routine-values {
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  gap: 10px;
+}
+
+.routine-values > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.routine-values span,
+.routine-category > span {
+  color: #94a3b8;
+
+  font-size: 7px;
+}
+
+.routine-values strong {
+  margin-top: 3px;
+
+  color: #475569;
+
+  font-size: 10px;
+}
+
+.routine-category {
+  min-width: 0;
+}
+
+.routine-category > span {
+  display: block;
+
+  margin-bottom: 5px;
+}
+
+.routine-help {
+  display: flex;
+
+  align-items: flex-start;
+
+  gap: 7px;
+
+  margin-top: 13px;
+  padding: 11px 13px;
+
+  border-radius: 12px;
+
+  background: #f8fafc;
+}
+
+.routine-help strong {
+  flex-shrink: 0;
+
+  color: #475569;
+
+  font-size: 8px;
+}
+
+.routine-help span {
+  color: #94a3b8;
+
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.routine-empty {
+  min-height: 150px;
+}
+
 @media (max-width: 900px) {
   .summary-grid {
     grid-template-columns: 1fr 1fr;
@@ -1097,6 +1351,14 @@ onMounted(loadBudgets)
 
   .budgets-grid {
     grid-template-columns: 1fr;
+  }
+
+  .routine-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .routine-category {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1108,6 +1370,18 @@ onMounted(loadBudgets)
 
   .cycle-pill {
     width: 100%;
+  }
+
+  .routine-row {
+    grid-template-columns: 1fr;
+  }
+
+  .routine-category {
+    grid-column: auto;
+  }
+
+  .routine-help {
+    flex-direction: column;
   }
 
   .summary-grid {

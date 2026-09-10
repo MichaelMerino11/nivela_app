@@ -68,6 +68,7 @@ const riskLabel = computed(() => {
 const financeStore = useFinanceStore()
 const planDialogOpen = ref(false)
 const amountToPlanCents = ref(0)
+const categoryToPlanId = ref<string | null>(null)
 const rolloverDialogOpen = ref(false)
 const rolloverSuccess = ref(false)
 
@@ -87,8 +88,10 @@ async function loadPlanning() {
   }
 }
 
-function openPlanDialog(amountCents: number) {
-  amountToPlanCents.value = amountCents
+function openPlanDialog(payload: { amountCents: number; categoryId: string | null }) {
+  amountToPlanCents.value = payload.amountCents
+
+  categoryToPlanId.value = payload.categoryId
 
   planDialogOpen.value = true
 }
@@ -363,6 +366,7 @@ watch(
     <PlanExpenseDialog
       v-model="planDialogOpen"
       :initial-amount-cents="amountToPlanCents"
+      :initial-category-id="categoryToPlanId"
       @saved="handlePlanSaved"
     />
     <CycleRolloverDialog v-model="rolloverDialogOpen" @completed="handleCycleCompleted" />

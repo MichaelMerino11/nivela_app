@@ -12,7 +12,13 @@ import { centsToCurrency, moneyToCents } from '@/utils/money'
 import { getExpenseFormOptions, type ExpenseCategory } from '@/services/expenses'
 
 const emit = defineEmits<{
-  (e: 'plan', amountCents: number): void
+  (
+    e: 'plan',
+    payload: {
+      amountCents: number
+      categoryId: string | null
+    },
+  ): void
 }>()
 
 const amount = ref('')
@@ -288,7 +294,17 @@ onMounted(loadCategories)
           </div>
 
           <div class="advice-actions">
-            <v-btn color="primary" variant="tonal" @click="emit('plan', advice.amountCents)">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              @click="
+                emit('plan', {
+                  amountCents: advice.amountCents,
+
+                  categoryId: categoryId,
+                })
+              "
+            >
               <strong>Planificar este gasto</strong>
             </v-btn>
           </div>
@@ -725,7 +741,6 @@ onMounted(loadCategories)
   .advisor-form :deep(.v-btn) {
     width: 100%;
   }
-
 
   .impact-grid {
     grid-template-columns: 1fr 1fr;

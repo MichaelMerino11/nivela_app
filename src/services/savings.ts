@@ -1,4 +1,5 @@
 import { supabase } from '@/services/supabase'
+import { calculateSavingsProgress } from '@/services/savings-engine'
 
 export interface SavingsContribution {
   id: string
@@ -98,16 +99,8 @@ export async function getSavingsOverview(): Promise<SavingsOverview> {
 
   const targetCents = cycle.savings_target_cents
 
-  const savedCents = contributions.reduce(
-    (total, contribution) => total + contribution.amountCents,
-    0,
-  )
-
-  const remainingCents = Math.max(targetCents - savedCents, 0)
-
-  const exceededCents = Math.max(savedCents - targetCents, 0)
-
-  const progressPercentage = targetCents > 0 ? Math.round((savedCents / targetCents) * 100) : 0
+  const { savedCents, remainingCents, exceededCents, progressPercentage } =
+    calculateSavingsProgress(targetCents, contributions)
 
   return {
     cycleId: cycle.id,
